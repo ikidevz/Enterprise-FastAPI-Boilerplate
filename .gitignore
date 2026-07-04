@@ -25,6 +25,7 @@ htmlcov/
 
 # Local runtime data
 uploads/
+!uploads/.gitkeep
 *.sqlite3
 *.db
 *.log
