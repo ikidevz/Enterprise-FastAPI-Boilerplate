@@ -14,10 +14,12 @@ class RegisterUserUseCase:
         self.notification_port = notification_port
 
     async def execute(self, *, payload: UserCreate) -> UserOut:
-        existing = await self.user_service.repository.get_by_email(payload.email)
-        if existing:
+        if await self.user_service.repository.get_by_email(payload.email):
             raise DuplicateResourceError(
                 "user", message="Email already registered")
+        if await self.user_service.repository.get_by_username(payload.username):
+            raise DuplicateResourceError(
+                "user", message="Username already taken")
 
         user = await self.user_service.create(payload)
         event = DomainEvent.create({

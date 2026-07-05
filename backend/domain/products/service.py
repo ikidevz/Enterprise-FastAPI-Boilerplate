@@ -31,8 +31,8 @@ class ProductService(BaseService[Product, object, object]):
             name=name,
             price=price,
             description=description,
-            created_at=datetime.now(timezone.utc).isoformat(),
-            updated_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         self.repository.db.add(product)
         await self.repository.db.flush()
@@ -46,7 +46,7 @@ class ProductService(BaseService[Product, object, object]):
             db_obj.price = price
         if description is not None:
             db_obj.description = description
-        db_obj.updated_at = datetime.now(timezone.utc).isoformat()
+        db_obj.updated_at = datetime.now(timezone.utc)
         self.repository.db.add(db_obj)
         await self.repository.db.flush()
         await self.repository.db.refresh(db_obj)

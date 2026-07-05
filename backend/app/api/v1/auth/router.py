@@ -15,13 +15,14 @@ from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
 from backend.common.audit import audit_logger
 from backend.common.dependencies import get_current_active_user
-from backend.common.exceptions import DomainError, to_http_exception
+from backend.common.exceptions import DomainError, UnauthorizedError, to_http_exception
 from backend.common.schema import (
     EmailVerificationConfirm,
     EmailVerificationRequest,
     PasswordResetConfirm,
     PasswordResetRequest,
     UserOut,
+    RefreshTokenRequest
 )
 from backend.common.tracing import trace_span
 
@@ -66,7 +67,9 @@ async def login(
 
 
 @router.post("/refresh")
-async def refresh_token(request: Request, refresh_token: str, db: AsyncSession = Depends(get_db)):
+async def refresh_token(request: Request, db: AsyncSession = Depends(get_db), refresh_token: str | None = None):
+    if not refresh_token:
+        raise to_http_exception(UnauthorizedError("Invalid refresh token"))
     try:
         repository = UserRepository(db)
         service = UserService(repository)
@@ -96,7 +99,9 @@ async def refresh_token(request: Request, refresh_token: str, db: AsyncSession =
 
 
 @router.post("/logout")
-async def logout(request: Request, refresh_token: str) -> dict[str, str]:
+async def logout(request: Request, refresh_token: str | None = None) -> dict[str, str]:
+    if not refresh_token:
+        raise to_http_exception(UnauthorizedError("Invalid refresh token"))
     from backend.application.auth import token_store
 
     await token_store.revoke(refresh_token)

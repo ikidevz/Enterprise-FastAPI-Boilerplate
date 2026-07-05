@@ -2,9 +2,9 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Literal
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_ENVIRONMENTS = {"dev", "staging", "prod"}
@@ -108,6 +108,41 @@ class Settings(BaseSettings):
     request_id_header: str = Field(default="x-request-id")
     max_request_size_bytes: int = Field(default=2 * 1024 * 1024)
     upload_dir: str = Field(default="./uploads")
+    upload_backend: Literal["local", "s3", "azure"] = Field(
+        default="local",
+        validation_alias=AliasChoices("UPLOAD_BACKEND", "upload_backend"),
+    )
+    s3_bucket: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("S3_BUCKET", "s3_bucket"),
+    )
+    s3_region: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("S3_REGION", "s3_region"),
+    )
+    s3_access_key_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("S3_ACCESS_KEY_ID", "s3_access_key_id"),
+    )
+    s3_secret_access_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "S3_SECRET_ACCESS_KEY", "s3_secret_access_key"),
+    )
+    s3_endpoint_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("S3_ENDPOINT_URL", "s3_endpoint_url"),
+    )
+    azure_storage_connection_string: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "AZURE_STORAGE_CONNECTION_STRING", "azure_storage_connection_string"),
+    )
+    azure_storage_container: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "AZURE_STORAGE_CONTAINER", "azure_storage_container"),
+    )
     password_reset_token_ttl_minutes: int = Field(default=15)
     email_backend: str = Field(default="console", validation_alias=AliasChoices(
         "EMAIL_BACKEND", "email_backend"))
@@ -167,8 +202,54 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return [str(value)]
 
+    @model_validator(mode="after")
+    def _reject_insecure_prod_defaults(self) -> "Settings":
+        if self.environment == "prod":
+            if self.secret_key == "change-me-in-production":
+                raise ValueError(
+                    "SECRET_KEY must be set to a real secret in production")
+            if self.default_admin_password == "Admin123!":
+                raise ValueError(
+                    "DEFAULT_ADMIN_PASSWORD must be changed in production")
+        return self
 
-@lru_cache
+    @model_validator(mode="after")
+    def _validate_upload_backend_configuration(self) -> "Settings":
+        if self.upload_backend == "s3":
+            missing = [
+                name for name in (
+                    "s3_bucket",
+                    "s3_access_key_id",
+                    "s3_secret_access_key",
+                )
+                if not getattr(self, name)
+            ]
+            if missing:
+                raise ValueError(
+                    f"S3 upload backend requires {', '.join(missing)}"
+                )
+        if self.upload_backend == "azure":
+            missing = [
+                name for name in (
+                    "azure_storage_connection_string",
+                    "azure_storage_container",
+                )
+                if not getattr(self, name)
+            ]
+            if missing:
+                raise ValueError(
+                    f"Azure upload backend requires {', '.join(missing)}"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_wildcard_origin_with_credentials(self) -> "Settings":
+        if "*" in self.cors_origins:
+            raise ValueError(
+                "CORS_ORIGINS cannot include '*' while credentials are allowed")
+        return self
+
+
 def get_settings() -> Settings:
     _normalize_env_list_settings()
     environment = os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "dev"
@@ -198,4 +279,5 @@ def get_settings() -> Settings:
     return settings
 
 
+get_settings.cache_clear = lambda: None
 settings = get_settings()

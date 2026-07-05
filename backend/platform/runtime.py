@@ -26,6 +26,3 @@ class PlatformRuntime:
             },
             "metrics": metrics_snapshot,
         }
-
-    def emit_runtime_snapshot(self) -> dict[str, object]:
-        return self.build_runtime_snapshot(environment="development")

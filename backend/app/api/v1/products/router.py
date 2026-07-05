@@ -6,24 +6,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.application.products import CreateProductUseCase, UpdateProductUseCase
 from backend.database.session import get_db
 from backend.common.audit import audit_logger
+from backend.common.dependencies import get_current_active_user
 from backend.common.exceptions import DomainError, NotFoundError, to_http_exception
 from backend.domain.products.repository import ProductRepository
 from backend.domain.products.service import ProductService
 from backend.common.schema import ProductCreate, ProductOut, ProductUpdate
 from backend.common.tracing import trace_span
+from backend.domain.users.model import User
+from backend.app.socketio_app import sio
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 
 @router.post("/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
-async def create_product(request: Request, payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> ProductOut:
+async def create_product(
+    request: Request,
+    payload: ProductCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ProductOut:
     with trace_span("product.create"):
         try:
             service = ProductService(ProductRepository(db))
             use_case = CreateProductUseCase(service)
             product = await use_case.execute(payload=payload)
+            await sio.emit("product_created", {"id": product.id, "name": product.name})
             audit_logger.log(
-                None,
+                current_user,
                 "product.created",
                 f"products:{product.id}",
                 {"name": product.name},
@@ -66,13 +75,19 @@ async def read_product(product_id: int, db: AsyncSession = Depends(get_db)) -> P
 
 
 @router.put("/{product_id}", response_model=ProductOut)
-async def update_product(request: Request, product_id: int, payload: ProductUpdate, db: AsyncSession = Depends(get_db)) -> ProductOut:
+async def update_product(
+    request: Request,
+    product_id: int,
+    payload: ProductUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ProductOut:
     try:
         service = ProductService(ProductRepository(db))
         use_case = UpdateProductUseCase(service)
         updated = await use_case.execute(product_id=product_id, payload=payload)
         audit_logger.log(
-            None,
+            current_user,
             "product.updated",
             f"products:{product_id}",
             {"changes": payload.model_dump(exclude_unset=True)},
@@ -86,14 +101,19 @@ async def update_product(request: Request, product_id: int, payload: ProductUpda
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_product(request: Request, product_id: int, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_product(
+    request: Request,
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> None:
     service = ProductService(ProductRepository(db))
     product = await service.get_by_id(product_id)
     if not product:
         raise to_http_exception(NotFoundError("product"))
     await service.delete(product)
     audit_logger.log(
-        None,
+        current_user,
         "product.deleted",
         f"products:{product_id}",
         {"name": product.name},

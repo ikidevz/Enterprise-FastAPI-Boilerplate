@@ -8,4 +8,4 @@ class EmailIntegrationAdapter:
         self.service = service
 
     def send(self, *, to: str, subject: str, body: str) -> None:
-        self.service.send(to=to, subject=subject, body=body)
+        self.service.transport.send(to=to, subject=subject, body=body)

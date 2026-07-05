@@ -1,10 +1,10 @@
-# Enterprise FastAPI Boilerplate
+# Tier 4 Architecture — Enterprise FastAPI Boilerplate
 
-A production-oriented FastAPI starter project built around a pragmatic enterprise-ready architecture. It is designed to be easy to understand, straightforward to extend, and suitable for building serious backend services without starting from a completely empty scaffold.
-
-This repository now goes beyond a conventional starter template by making application use cases, integration adapters, and domain events explicit. It provides a working foundation for authentication, CRUD, file uploads, real-time features, middleware, observability, configuration management, infrastructure registration, and testing in a single cohesive backend platform.
+A production-oriented FastAPI starter built around a pragmatic, four-layer architecture (presentation → application → domain → infrastructure). It's meant to be easy to read, straightforward to extend, and to save you the first few weeks of scaffolding a "serious" backend service — auth, CRUD, uploads, real-time hooks, middleware, observability, and configuration are all wired up and working.
 
 ![Enterprise FastAPI Boilerplate](https://tdhghaslnufgtzjybhhf.supabase.co/storage/v1/object/public/content/Enterprise%20FastAPI%20Boilerplate/cover.png)
+
+`tier4-fastapi-boilerplate` · Python 3.10–3.14 · FastAPI · async SQLAlchemy 2.0 · Postgres · Redis · MIT licensed
 
 ## Table of Contents
 
@@ -15,154 +15,145 @@ This repository now goes beyond a conventional starter template by making applic
 - [Project structure](#project-structure)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
-- [API overview](#api-overview)
+- [API reference](#api-reference)
 - [Development workflow](#development-workflow)
 - [Testing](#testing)
 - [Deployment notes](#deployment-notes)
+- [Before you ship this: known limitations](#before-you-ship-this-known-limitations)
 - [Roadmap](#roadmap)
 - [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
 
-Tier 4 Architecture is a backend starter focused on clarity and maintainability. It separates concerns into four layers so that business logic, infrastructure concerns, API concerns, and shared utilities remain easy to reason about as the project grows.
+Tier 4 Architecture is a backend starter focused on clarity and maintainability. It separates concerns into four layers so that business logic, infrastructure concerns, API concerns, and shared utilities remain easy to reason about as the project grows — a change to how you send email shouldn't require touching the router, and a change to a validation rule shouldn't require touching the database layer.
 
 ### What you get out of the box
 
-- A fully runnable FastAPI application with health endpoints and OpenAPI docs
-- Authentication and authorization primitives for users and admin-style access
-- A sample product module to demonstrate CRUD patterns and query behavior
-- File upload handling with local storage and static serving
-- Middleware for request context, correlation headers, rate limiting, and payload protection
-- Configuration support with environment profiles and secret-file resolution
-- Email delivery hooks for password reset and verification flows
-- An explicit infrastructure layer for logging, cache, background workers, and runtime service registration
-- Automated tests that cover core backend behaviors
+- A fully runnable FastAPI application with health/readiness endpoints and OpenAPI docs (`/docs`, `/redoc`)
+- JWT-based authentication with access + refresh tokens, password reset, email verification, and account lockout after repeated failed logins
+- Role/permission primitives for admin-style access control
+- A sample `products` module demonstrating a second domain with search, sort, and pagination-style listing
+- Multipart file upload with authentication, local storage, and static serving
+- Middleware for request correlation (request ID / trace ID), rate limiting, and payload-size protection
+- Environment-profile configuration with `*_FILE`-based secret resolution for container/secret-mount deployments
+- Pluggable email delivery (console backend for local dev, SMTP for real sending)
+- An explicit infrastructure-registration layer wiring logging, Redis, background jobs, and email onto `app.state`
+- Socket.IO + a bare WebSocket endpoint for real-time experimentation
+- Alembic migration scaffolding, a local seed-data script, and an automated test suite covering the flows above
+- Docker + Docker Compose (API + Postgres + Redis) and a GitHub Actions CI workflow (lint + test) out of the box
 
 ## Why this project
 
-This project is intentionally practical rather than theoretical. It aims to provide a foundation that feels close to what you would actually ship in a modern backend service:
+This starter is intentionally practical rather than theoretical — the goal is a structure close to what you'd actually ship, not a textbook diagram:
 
-- Clear separation of concerns
-- Fast iteration for new features
-- Built-in support for common operational concerns
-- Easy onboarding for developers who are new to FastAPI and layered architecture
-- Strong test coverage around the most important flows
+- Clear separation of concerns across four layers, so features can be added without cross-cutting rewrites
+- Fast iteration: the layered pattern in [Development workflow](#development-workflow) is the same for every new feature
+- Built-in support for common operational concerns (health checks, rate limiting, request correlation, structured logging)
+- Approachable for developers newer to FastAPI or layered architecture — each layer maps to one clear question ("what does this mean for the business," "how do I orchestrate this," "how do I store this," "how do I talk to the outside world")
+- A real (if imperfect — see [known limitations](#before-you-ship-this-known-limitations)) test suite around the core flows, so you have a safety net from day one
 
-Whether you are building an internal tool, a SaaS backend, or a learning project, this starter gives you a ready-made structure to build upon.
+Whether you're building an internal tool, an early-stage SaaS backend, or a learning project on layered architecture, this gives you a working structure to build on rather than a blank `main.py`.
 
 ## Architecture
 
-The project follows a pragmatic enterprise-style architecture that is easy to extend while still staying approachable:
+```
+Presentation (backend/app)        →  routers, schemas, WebSocket/Socket.IO, middleware
+        │
+Application (backend/application) →  use cases, ports (interfaces for outbound calls)
+        │
+Domain (backend/domain)           →  services (business rules), repositories, models, events
+        │
+Infrastructure (database, infrastructure, utils, integrations, common, platform)
+                                   →  DB engine/session, Redis, email transport, runtime wiring,
+                                      logging, rate limiting, auditing, tracing, exceptions
+```
 
-1. Presentation Layer
-   - FastAPI routers and handlers
-   - Request/response validation with Pydantic
-   - WebSocket and Socket.IO endpoints
-   - OpenAPI documentation
+1. **Presentation layer** — FastAPI routers and handlers, Pydantic request/response validation, WebSocket and Socket.IO endpoints, OpenAPI documentation.
+2. **Application layer** — explicit use cases (e.g. `RegisterUserUseCase`, `LoginUseCase`, `CreateProductUseCase`) that orchestrate a business workflow end to end, plus ports that describe outbound integrations without binding the domain to a specific SDK.
+3. **Domain layer** — business logic in services, persistence access in repositories, entities as SQLAlchemy models, and `DomainEvent`s for communicating meaningful state changes.
+4. **Infrastructure layer** — async SQLAlchemy sessions, the Redis client, email transport, explicit startup/shutdown registration for logging/cache/background jobs, and deployment-oriented configuration.
 
-2. Application Layer
-   - Explicit use cases such as registration workflows
-   - Ports and adapters that isolate external integrations from business rules
-   - Lightweight orchestration that keeps route handlers thin
-
-3. Domain Layer
-   - Business logic in services
-   - Persistence logic in repositories
-   - Domain models for users, products, and related entities
-   - Domain events that communicate meaningful state changes across the system
-
-4. Infrastructure Layer
-   - Async SQLAlchemy sessions and model setup
-   - Redis-backed token storage and runtime helpers
-   - Explicit registration for logging, cache, background workers, email delivery, and runtime services
-   - Deployment-ready configuration conventions for environment-specific behavior
-
-This layering helps keep the codebase maintainable as it matures into a more formal enterprise platform.
+For the full request-by-request walkthrough of how a call moves through these layers, see [DOCUMENTATION.md](DOCUMENTATION.md#2-request-lifecycle-in-detail).
 
 ## Core features
 
 ### Authentication and session management
 
-The starter includes a functional authentication workflow with:
-
-- User registration
-- Login and logout
-- Access-token and refresh-token support
-- Password reset flow
-- Email verification flow
-- Account lockout protection after repeated failed attempts
-- Lightweight email notifications for password reset and verification actions
+- User registration, login, and logout
+- Access-token + refresh-token issuance and rotation, with revocation on logout
+- Password reset (request/confirm) and email verification (request/confirm) flows
+- Account lockout after repeated failed login attempts
+- Lightweight, pluggable email notifications for the flows above (console backend by default, SMTP for real environments)
 
 ### User and admin workflows
 
-- CRUD endpoints for users
-- Profile access for the current authenticated user
-- Admin-style access examples with permission checks
-- Governance-style permission evaluation examples
+- CRUD endpoints for users, plus a `/me` profile route for the current authenticated user
+- Admin-style listing endpoint and a permissions example endpoint demonstrating policy-based access checks
+- Role (`role`) and explicit `permissions` list on the user model, evaluated through a small `AuthorizationPolicy`/`PermissionPolicy` layer
 
 ### Product module
 
-A sample product domain is included to demonstrate a typical second feature module with:
+A second domain module included to show the same layered pattern applied twice:
 
-- Create, read, update, and delete operations
-- Search and filtering support
-- Sorting and pagination-friendly list behavior
+- Create, read, update, delete
+- Search (`search`), pagination-style listing (`skip`/`limit`), and sorting (`sort`/`order`) on the list endpoint
+- OpenAPI examples on the request/response schemas
 
 ### Files and media
 
-- Multipart file upload endpoint
-- Local file storage by default
-- Static serving for uploaded files under /static/uploads
+- Multipart upload endpoint (`POST /api/v1/uploads/`)
+- Local disk storage by default, served back under `/static/uploads`
 
 ### Reliability and observability
 
-- Request ID and trace ID propagation
-- Structured logging with request context
-- Rate limiting to reduce abuse and accidental traffic spikes
+- Request ID / trace ID generation and propagation via `x-request-id` / `x-trace-id` headers, bound into the logging context for correlation
+- In-memory rate limiting (single-instance; see [known limitations](#before-you-ship-this-known-limitations) for multi-instance caveats)
 - Request-size protection for oversized payloads
-- Health and readiness checks for deployment and monitoring
-- A lightweight runtime facade and explicit API contracts for operational introspection and service boundaries
-- OpenTelemetry-compatible tracing hooks for basic and production-style deployments
+- `/health` (liveness) and `/health/ready` (DB + Redis ping) endpoints
+- `/metrics` (in-process request counters) and `/runtime` (operational snapshot: environment, uptime, metrics) endpoints
+- Span-style tracing hooks around HTTP requests, login, product creation, and uploads (structured logging today — see [known limitations](#before-you-ship-this-known-limitations) for the gap between this and a wired-up OpenTelemetry exporter)
 
 ### Real-time support
 
-- Socket.IO integration for event-driven communication
-- WebSocket-based health endpoint for lightweight connection testing
+- Socket.IO server mounted at `/socket.io` with `connect`/`disconnect`/`ping` handlers and an example client-triggered event
+- A bare WebSocket endpoint at `/ws/health` for connection testing
 
 ## Project structure
 
-The repository is organized for clarity and extensibility:
+- [backend/app](backend/app) — API routers, the app factory, bootstrap registration (middleware/routers/static), and Socket.IO wiring
+- [backend/application](backend/application) — use cases per feature (`users/`, `products/`, `auth/`), plus shared ports and application-level services
+- [backend/domain](backend/domain) — per-feature services, repositories, and models (`users/`, `products/`), plus `events/` for domain events
+- [backend/database](backend/database) — async engine/session setup and the shared declarative base
+- [backend/common](backend/common) — shared cross-cutting code: schemas, auth dependencies, RBAC/permissions, rate limiting, logging, audit trail, exceptions, tracing, background jobs, base repository/service classes
+- [backend/infrastructure](backend/infrastructure) — startup/shutdown wiring that attaches logging, Redis, background jobs, and email onto `app.state`
+- [backend/integrations](backend/integrations) — adapters bridging the domain to external systems (currently: email)
+- [backend/platform](backend/platform) — the `PlatformRuntime` facade backing `/runtime`
+- [backend/contracts](backend/contracts) — API-facing mirror types for a few response shapes
+- [backend/utils](backend/utils) — the Redis client and small runtime helpers
+- [backend/services](backend/services) — a small runtime-service container (see note below)
+- [backend/scripts](backend/scripts) — local dev seed-data script
+- [tests](tests) — the automated test suite
+- [alembic](alembic) — migration environment and versions
+- [deployment](deployment) — per-environment `.env` templates
 
-- [backend/app](backend/app) — API routes, auth endpoints, Socket.IO wiring, and router composition
-- [backend/application](backend/application) — explicit use cases and application orchestration for enterprise workflows
-- [backend/domain](backend/domain) — services, repositories, business logic, and domain events
-- [backend/database](backend/database) — database session setup, engines, and models
-- [backend/common](backend/common) — shared abstractions such as schemas, dependencies, permissions, logging, audit, context helpers, and bootstrap support
-- [backend/infrastructure](backend/infrastructure) — infrastructure package for runtime registration, persistence wiring, and shared service hooks
-- [backend/integrations](backend/integrations) — adapter layer for outbound services such as email delivery
-- [backend/services](backend/services) — explicit runtime service container for logging, cache, background workers, and email delivery
-- [backend/app/factory.py](backend/app/factory.py) — centralized FastAPI application construction and app assembly
-- [backend/app/bootstrap](backend/app/bootstrap) — enterprise-style registration modules for routers, middleware, and static assets
-- [backend/app/infrastructure.py](backend/app/infrastructure.py) — compatibility entrypoint for infrastructure registration
-- [backend/platform](backend/platform) — runtime facade for environment-aware snapshots and operational metadata
-- [backend/contracts](backend/contracts) — explicit API contracts for health, metrics, auth, users, and products
-- [backend/utils](backend/utils) — runtime utilities such as the Redis client and related helpers
-- [tests](tests) — regression and behavior tests for the main backend flows
-- [alembic](alembic) — migration scaffolding and schema evolution support
+> **Note:** a few of the packages above (`backend/services`, parts of `backend/contracts`, `backend/common/pagination.py`) overlap in purpose with other packages that are actually wired into the running app. If you're auditing this codebase before extending it, [DOCUMENTATION.md](DOCUMENTATION.md#appendix-a--corrections-from-the-original-documentation) has the details on which implementation is the one actually in use.
 
 ## Quick start
 
 ### Prerequisites
 
-- Python 3.10 or newer
-- A virtual environment tool such as venv or conda
+- Python 3.10–3.14
+- A virtual environment tool (venv, conda, etc.)
+- Postgres and Redis reachable at the URLs in your `.env` (or use Docker Compose, below, to get both for free)
 - Optional: Docker and Docker Compose for containerized development
 
 ### 1. Clone the repository
 
 ```bash
 git clone <your-repo-url>
-cd main
+cd tier4-fastapi-boilerplate
 ```
 
 ### 2. Create and activate a virtual environment
@@ -183,22 +174,43 @@ python -m venv .venv
 
 ```bash
 pip install -r requirements.txt
+# or, for local development with lint/type-check/test tooling:
+pip install -e .[dev]
 ```
 
 ### 4. Configure environment variables
 
-Copy [.env.example](.env.example) to .env and adjust the values as needed.
+Copy [.env.example](.env.example) to `.env` and adjust the values.
 
-At minimum, you will typically want to review:
+At minimum, review before running anything beyond local dev:
 
-- DATABASE_URL
-- REDIS_URL
-- SECRET_KEY
-- EMAIL_BACKEND
-- SMTP_HOST / SMTP_PORT / SMTP_USERNAME / SMTP_PASSWORD
-- ENABLE_TRACING / OTEL_MODE / OTEL_EXPORTER_OTLP_ENDPOINT
+| Variable                                                                    | Why it matters                                                                                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                              | Points at your Postgres instance.                                                                                                 |
+| `REDIS_URL`                                                                 | Points at your Redis instance.                                                                                                    |
+| `SECRET_KEY`                                                                | JWT signing key — **must** be changed outside local dev.                                                                          |
+| `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` | Used by the seed script to bootstrap an admin — **must** be changed outside local dev.                                            |
+| `EMAIL_BACKEND` + `SMTP_*`                                                  | Switch from console-only email to real SMTP delivery.                                                                             |
+| `CORS_ORIGINS`                                                              | Restrict to your real frontend origin(s) in any shared environment.                                                               |
+| `ENABLE_TRACING` / `OTEL_MODE` / `OTEL_EXPORTER_OTLP_ENDPOINT`              | Tracing configuration — see [known limitations](#before-you-ship-this-known-limitations) for what this does and doesn't do today. |
 
-### 5. Run the application
+### 5. Run database migrations (optional for local dev, required beyond it)
+
+```bash
+alembic upgrade head
+```
+
+The app's startup lifecycle will also call `create_all` for convenience in local dev, but that's not a substitute for migrations anywhere the schema needs to evolve safely.
+
+### 6. (Optional) Seed local data
+
+```bash
+python -m backend.scripts.seed_data
+```
+
+Creates a default admin account and two example products if they don't already exist. **Local development only** — see [known limitations](#before-you-ship-this-known-limitations).
+
+### 7. Run the application
 
 ```bash
 uvicorn backend.main:app --reload
@@ -209,47 +221,62 @@ The API docs will be available at:
 - http://127.0.0.1:8000/docs
 - http://127.0.0.1:8000/redoc
 
-### 6. Optional: run with Docker
+### 8. Optional: run with Docker
 
 ```bash
 docker compose up --build
 ```
 
+This brings up the API alongside `postgres:16-alpine` and `redis:7-alpine`, so you don't need either installed locally to try the project.
+
 ## Configuration
 
-The application uses environment-based configuration with support for profile-specific files and secret-file resolution. This helps keep credentials and deployment-specific settings out of the source tree.
+The application uses environment-based configuration (`pydantic-settings`) with support for profile-specific files and secret-file resolution, so credentials don't need to live in the source tree.
 
-Common settings include:
+Load order (highest precedence last): `ENV_FILE` (if set) → `.env` → `.env.<environment>` → `.env.<environment>.local` → `.env.local` → real process environment variables → field defaults.
 
-- Project metadata such as name and API version prefix
-- Database and Redis connection strings
-- Secret keys and signing algorithms
-- CORS origins
-- Rate limiting settings
-- Upload directory location
-- Email backend configuration for console or SMTP delivery
+Settings roughly group into:
 
-If you are deploying to a real environment, it is strongly recommended to provide secrets through environment variables or mounted secret files rather than hardcoding them.
+- **Project metadata** — name, API version prefix (`API_V1_STR`)
+- **Database & cache** — `DATABASE_URL`(`_FILE`), `REDIS_URL`(`_FILE`)
+- **Auth** — `SECRET_KEY`(`_FILE`), `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `PASSWORD_RESET_TOKEN_TTL_MINUTES`
+- **CORS** — `CORS_ORIGINS`
+- **Rate limiting & payload protection** — `ENABLE_RATE_LIMITING`, `RATE_LIMIT_REQUESTS_PER_MINUTE`, `MAX_REQUEST_SIZE_BYTES`
+- **Uploads** — `UPLOAD_DIR`
+- **Email** — `EMAIL_BACKEND` (`console`/`smtp`), `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_USE_TLS`/`SMTP_USE_SSL`/`SMTP_FROM_EMAIL`
+- **Seed admin** — `DEFAULT_ADMIN_EMAIL`/`DEFAULT_ADMIN_USERNAME`/`DEFAULT_ADMIN_PASSWORD`
+- **Transport security** — `REQUIRE_HTTPS`
+- **Tracing** — `ENABLE_TRACING`, `OTEL_MODE`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`
 
-## API overview
+The full field-by-field reference (defaults and purpose for every setting) is in [DOCUMENTATION.md](DOCUMENTATION.md#5-configuration--environment-variables-reference).
 
-The application exposes a modern REST-style API via the v1 router.
+If you're deploying anywhere shared, provide secrets via real environment variables or the `*_FILE` settings (pointing at a mounted secret file) — never commit real credentials to a `.env`.
 
-### Primary routes
+## API reference
 
-- POST /api/v1/users/ — register a user
-- POST /api/v1/auth/login — authenticate a user
-- POST /api/v1/auth/refresh — rotate a refresh token
-- POST /api/v1/auth/logout — revoke a refresh token
-- POST /api/v1/auth/password-reset/request — start password reset
-- POST /api/v1/auth/password-reset/confirm — complete password reset
-- POST /api/v1/auth/email-verification/request — request email verification
-- POST /api/v1/auth/email-verification/confirm — confirm verification
-- GET /health — application health payload
-- GET /health/ready — readiness checks for database and Redis
-- GET /runtime — platform-level runtime snapshot with environment and uptime metadata
-- GET /metrics — collected request metrics for observability
-- POST /api/v1/uploads/ — upload a file
+All routes below live under `API_V1_STR` (default `/api/v1`) unless noted otherwise. See [DOCUMENTATION.md](DOCUMENTATION.md#4-full-api-endpoint-reference) for the complete table including which routes currently require authentication.
+
+| Method                    | Path                                                    | Purpose                                                                                                                  |
+| ------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| POST                      | `/api/v1/users/`                                        | Register a user                                                                                                          |
+| GET                       | `/api/v1/users/me`                                      | Current user's profile                                                                                                   |
+| GET / PUT / DELETE        | `/api/v1/users/{user_id}`                               | Read / update / delete a user                                                                                            |
+| GET                       | `/api/v1/users/`                                        | List users                                                                                                               |
+| POST                      | `/api/v1/auth/login`                                    | Authenticate, receive access + refresh tokens                                                                            |
+| POST                      | `/api/v1/auth/refresh`                                  | Rotate a refresh token                                                                                                   |
+| POST                      | `/api/v1/auth/logout`                                   | Revoke a refresh token                                                                                                   |
+| POST                      | `/api/v1/auth/password-reset/request` \| `/confirm`     | Password reset flow                                                                                                      |
+| POST                      | `/api/v1/auth/email-verification/request` \| `/confirm` | Email verification flow                                                                                                  |
+| POST / GET / PUT / DELETE | `/api/v1/products/` \| `/{product_id}`                  | Product CRUD; writes require auth, list/read remain public, and list supports `search`, `skip`, `limit`, `sort`, `order` |
+| POST                      | `/api/v1/uploads/`                                      | Upload a file (auth required)                                                                                            |
+| GET                       | `/api/v1/admin/users`                                   | Admin-only user listing                                                                                                  |
+| GET                       | `/api/v1/admin/permissions`                             | Permission-policy example endpoint                                                                                       |
+| GET                       | `/health`                                               | Liveness check                                                                                                           |
+| GET                       | `/health/ready`                                         | Readiness check (DB + Redis)                                                                                             |
+| GET                       | `/metrics`                                              | In-process request metrics snapshot                                                                                      |
+| GET                       | `/runtime`                                              | Operational snapshot (env, uptime, metrics)                                                                              |
+| WS                        | `/ws/health`                                            | Bare WebSocket connectivity check                                                                                        |
+| Socket.IO                 | `/socket.io`                                            | Real-time event channel                                                                                                  |
 
 ### Example request
 
@@ -259,33 +286,34 @@ curl -X POST "http://127.0.0.1:8000/api/v1/auth/login" \
   -d "username=demo@example.com&password=StrongPass123!"
 ```
 
+```bash
+curl "http://127.0.0.1:8000/api/v1/products/?search=widget&sort=price&order=asc&limit=10"
+```
+
 ## Development workflow
 
-A simple and maintainable development workflow is encouraged:
-
-1. Keep routers thin and focused on HTTP concerns
-2. Put business rules into services instead of route handlers
-3. Keep repositories focused on persistence logic
-4. Reuse the shared abstractions in [backend/common](backend/common)
-5. Prefer explicit, validated schemas over ad-hoc dictionaries
-6. Register new infrastructure concerns through [backend/app/infrastructure.py](backend/app/infrastructure.py) instead of scattering runtime wiring throughout the app
-7. Add regression tests whenever behavior changes
+1. Keep routers thin — parse the request, call a use case, translate the result/errors into a response.
+2. Put business rules into domain services, not route handlers.
+3. Keep repositories focused on persistence and query logic only.
+4. Reuse the shared abstractions in [backend/common](backend/common) (auth dependencies, exceptions, schemas) rather than re-implementing them per feature.
+5. Prefer explicit, validated Pydantic schemas over ad-hoc dictionaries — and be deliberate about which fields a schema exposes to which caller (see the registration note in [known limitations](#before-you-ship-this-known-limitations)).
+6. Register new startup/shutdown infrastructure concerns through [backend/infrastructure/runtime.py](backend/infrastructure/runtime.py) rather than scattering wiring through the app.
+7. Add a regression test whenever behavior changes — both a use-case/service-level test and a route-level test through `TestClient`.
 
 ### Adding a new feature module
 
-A typical feature follows this pattern:
+1. Domain model in [backend/domain/\<feature\>/model.py](backend/domain)
+2. Repository for persistence in `backend/domain/<feature>/repository.py`
+3. Domain service for business rules in `backend/domain/<feature>/service.py`
+4. Application use case(s) in `backend/application/<feature>/use_cases.py` to orchestrate the workflow
+5. Request/response schemas in [backend/common/schema.py](backend/common/schema.py)
+6. API routes under [backend/app/api/v1/\<feature\>/](backend/app/api/v1)
+7. Register the router in [backend/app/api/v1/router.py](backend/app/api/v1/router.py)
+8. Any supporting infrastructure (storage, cache, background jobs, an outbound adapter under `backend/integrations/`)
 
-1. Create a domain model in [backend/domain](backend/domain)
-2. Add a repository for persistence logic
-3. Add a service for application/business rules
-4. Define schemas for request and response payloads
-5. Add API routes under [backend/app/api/v1](backend/app/api/v1)
-6. Register the router in [backend/app/api/v1/router.py](backend/app/api/v1/router.py)
-7. Add any necessary infrastructure support such as storage, cache, or background jobs
+The full walkthrough with the reasoning behind each step is in [DOCUMENTATION.md](DOCUMENTATION.md#6-how-to-implement-a-new-feature-step-by-step).
 
 ## Testing
-
-The repository includes a comprehensive test suite for the main backend flows.
 
 Run the full suite with:
 
@@ -293,48 +321,64 @@ Run the full suite with:
 pytest -q
 ```
 
-The suite covers:
+Or, matching CI exactly:
 
-- Authentication and authorization flows
-- User CRUD behavior
-- Product CRUD and query behavior
-- Health and readiness endpoints
-- Upload handling
-- WebSocket and Socket.IO interaction
-- Trace header propagation and request correlation
-- Seed-data initialization
+```bash
+ruff check backend tests
+python -m pytest -q
+```
+
+- The suite covers authentication/authorization flows, user and product CRUD (including negative/duplicate/validation cases), health and readiness endpoints, upload handling, WebSocket/Socket.IO interaction, trace-header propagation, middleware branches for rate limiting and request-size protection, and seed-data initialization. See [DOCUMENTATION.md](DOCUMENTATION.md#9-testing-strategy) for a file-by-file breakdown of what each test module actually checks.
 
 ## Deployment notes
 
-The project is prepared for local development and can be extended for container-based deployment.
+The project ships with a working `Dockerfile` (non-root user, healthcheck against `/health`) and `docker-compose.yml` (API + Postgres + Redis), plus a GitHub Actions workflow that lints and tests every push/PR to `main`/`master`.
 
-Recommended production hardening steps include:
+Before deploying beyond local development:
 
-- Use a real database instead of local development defaults where appropriate
-- Configure environment variables or secret files for all credentials
-- Enable proper TLS and reverse-proxy settings
-- Replace the default in-memory or local-first behaviors with durable infrastructure when necessary
-- Add monitoring, logging aggregation, and alerting for operational visibility
-- Promote configuration through environment-specific profiles rather than relying on local defaults
-- Add deployment health checks and readiness probes that consume /health/ready and /runtime
+- Use a real, non-default database and Redis instance — not the compose file's `postgres`/`postgres` local credentials.
+- Provide all credentials via environment variables or mounted secret files (the `*_FILE` settings exist for exactly this).
+- Change `SECRET_KEY` and `DEFAULT_ADMIN_PASSWORD` away from their defaults — nothing currently stops the app from booting with the defaults in place, so this is on you to enforce.
+- Put a TLS-terminating reverse proxy in front, and set `REQUIRE_HTTPS=true`.
+- Read [known limitations](#before-you-ship-this-known-limitations) below and address the ones relevant to your deployment (especially the endpoint-auth and rate-limiter/audit-log scalability notes) — they're not edge cases, they're gaps in the current baseline.
+- Wire `/health/ready` and `/runtime` into your orchestrator's readiness probes and dashboards.
 
-Docker support is already present through the provided compose and container configuration files.
+## Before you ship this: known limitations
+
+This is a boilerplate, and boilerplates get copied into real projects wholesale more often than they get read line-by-line first. So, as plainly as the features are listed above, here's what's currently incomplete or worth a deliberate decision before you rely on it:
+
+- **The public surface is now intentionally narrow** — public registration and the public product catalog remain available, while product write operations and uploads now require authentication. Review any endpoint-specific access rules before exposing them beyond the current baseline.
+- **Public registration and role assignment need to be kept separate** — a self-registration endpoint should never let the caller choose their own role/permissions.
+- **Uploaded filenames need sanitizing** before being trusted for on-disk paths.
+- **Rate limiting and the audit log are in-process/in-memory** — fine for a single instance, not a real multi-worker/multi-replica guarantee. Back them with Redis/the database respectively if you scale horizontally.
+- **Tracing and metrics are lightweight by design** — the tracing hooks produce structured logs today, not a wired-up OpenTelemetry exporter pipeline, and `/metrics`/`/runtime` are process-local snapshots, not a Prometheus-scrape endpoint or cross-instance aggregate.
+- **A handful of packages overlap in purpose** (see the note in [Project structure](#project-structure)) — when in doubt about which implementation is "the real one," `backend/infrastructure/runtime.py` is the source of truth for what's attached to `app.state`.
+
+The full, detailed version of this list — with file/line references and suggested fixes — is in [DOCUMENTATION.md §11](DOCUMENTATION.md#11-known-limitations--security-notes-read-before-deploying).
 
 ## Roadmap
 
-The project is already more than a blank starter, but there are still plenty of opportunities to improve it:
-
-- Add richer Alembic migrations and stronger seed-data workflows
-- Introduce more mature cache and background-task orchestration patterns for distributed deployments
-- Expand observability with OpenTelemetry and richer metrics
-- Add additional business modules such as orders, invoices, or audit logs
-- Evolve the permissions system into a fuller authorization model
-- Add cloud-native storage and queue integrations for production workloads
-- Formalize use-case tests and contract tests around the application layer
-- Introduce a richer event bus and outbox pattern for reliable domain-event propagation
+- Close the gaps above: endpoint auth, registration field-scoping, upload filename sanitization
+- Wire up a real OpenTelemetry SDK + OTLP exporter for auth, database, Redis, and Socket.IO boundaries
+- Move rate limiting onto Redis and the audit log onto persistent storage, so both hold up under horizontal scaling and restarts
+- Add cloud object-storage integration (S3/Azure Blob) for production file handling
+- Add contract tests for API schemas and backward compatibility
+- Add a second, richer domain module (orders, invoices, or subscriptions) as a guided example of the full layered pattern
+- Introduce an outbox pattern and event publisher so `DomainEvent`s are actually propagated somewhere, not just logged
+- Formalize environment promotion (dev → staging → prod) for container-based deployment
 
 ## Documentation
 
-For a deeper explanation of the architecture, design decisions, and extension patterns, see:
+For the full architecture walkthrough, request-lifecycle trace, complete endpoint/config reference, and the detailed known-limitations writeup, see [DOCUMENTATION.md](docs/DOCUMENTATION.md).
 
-- [DOCUMENTATION.md](DOCUMENTATION.md)
+## Contributing
+
+Issues and pull requests are welcome. Before opening a PR:
+
+1. Run `ruff check backend tests` and `pytest -q` locally.
+2. Add or update tests for any behavior change — prefer a real assertion over an "it imports" smoke test.
+3. If you're fixing something listed under [known limitations](#before-you-ship-this-known-limitations), please also add the regression test that would have caught it.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

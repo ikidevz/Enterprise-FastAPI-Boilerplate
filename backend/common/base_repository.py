@@ -24,12 +24,25 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def create(self, obj_in: CreateSchemaType) -> ModelType:
-        db_obj = self.model(**obj_in.model_dump()) if hasattr(obj_in,
-                                                              "model_dump") else self.model(**obj_in)
+    async def create(self, obj_in: CreateSchemaType | ModelType) -> ModelType:
+        if isinstance(obj_in, self.model):
+            db_obj = obj_in
+
+        elif hasattr(obj_in, "model_dump"):
+            db_obj = self.model(**obj_in.model_dump())
+
+        elif isinstance(obj_in, dict):
+            db_obj = self.model(**obj_in)
+
+        else:
+            raise TypeError(
+                f"Unsupported object type: {type(obj_in)}"
+            )
+
         self.db.add(db_obj)
         await self.db.flush()
         await self.db.refresh(db_obj)
+
         return db_obj
 
     async def update(self, db_obj: ModelType, obj_in: UpdateSchemaType) -> ModelType:

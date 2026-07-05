@@ -14,7 +14,7 @@ class AuthorizationPolicy:
     def allows(self, user: User) -> bool:
         if user.is_superuser:
             return True
-        if self.required_roles and user.username not in self.required_roles:
+        if self.required_roles and user.role not in self.required_roles:
             return False
         if self.required_permissions and not set(self.required_permissions).issubset(set(user.permissions or [])):
             return False
@@ -23,11 +23,10 @@ class AuthorizationPolicy:
 
 def require_role(*roles: str) -> Callable[..., object]:
     async def dependency(current_user: User = Depends(get_current_active_user)) -> User:
-        if not current_user.is_superuser and current_user.username not in roles:
+        if not current_user.is_superuser and current_user.role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return current_user
-
     return dependency
 
 

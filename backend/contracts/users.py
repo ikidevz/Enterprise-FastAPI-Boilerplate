@@ -10,9 +10,5 @@ class UserContract(BaseModel):
 
     id: int
     email: str
-    username: str
-    is_active: bool
-    is_verified: bool
-    is_superuser: bool
-    role: str
-    permissions: list[str]
+    full_name: str | None = None
+    is_active: bool = True

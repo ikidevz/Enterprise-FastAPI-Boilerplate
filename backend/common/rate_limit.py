@@ -31,3 +31,19 @@ class RateLimiter:
 
 
 shared_rate_limiter = RateLimiter()
+
+
+class RedisRateLimiter:
+    def __init__(self, redis_client) -> None:
+        self.redis = redis_client
+
+    async def allow_request(self, client_id: str, path: str, *, limit: int, window_seconds: int = 60) -> bool:
+        key = f"ratelimit:{client_id}:{path}"
+        now = time()
+        pipe = self.redis.pipeline()
+        pipe.zremrangebyscore(key, 0, now - window_seconds)
+        pipe.zadd(key, {str(now): now})
+        pipe.zcard(key)
+        pipe.expire(key, window_seconds)
+        _, _, count, _ = await pipe.execute()
+        return count <= limit

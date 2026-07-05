@@ -58,15 +58,12 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
             is_active=True,
             is_verified=False,
             is_superuser=False,
-            role=obj_in.role or "user",
-            permissions=obj_in.permissions or [],
-            created_at=datetime.now(timezone.utc).isoformat(),
-            updated_at=datetime.now(timezone.utc).isoformat(),
+            role="user",
+            permissions=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
-        self.repository.db.add(user)
-        await self.repository.db.flush()
-        await self.repository.db.refresh(user)
-        return user
+        return await self.repository.create(user)
 
     @staticmethod
     def _normalize_datetime(value: datetime | None) -> datetime | None:
@@ -106,7 +103,7 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
 
     async def mark_verified(self, user: User) -> User:
         user.is_verified = True
-        user.updated_at = datetime.now(timezone.utc).isoformat()
+        user.updated_at = datetime.now(timezone.utc)
         self.repository.db.add(user)
         await self.repository.db.flush()
         await self.repository.db.refresh(user)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -11,8 +12,8 @@ from backend.common.log import get_request_id
 
 
 class AuditLogger:
-    def __init__(self) -> None:
-        self.entries: list[dict[str, Any]] = []
+    def __init__(self, *, max_entries: int = 10_000) -> None:
+        self.entries: collections.deque = collections.deque(maxlen=max_entries)
         self.logger = logging.getLogger("tier4.audit")
 
     def clear(self) -> None:
@@ -20,7 +21,7 @@ class AuditLogger:
 
     def log(
         self,
-        actor: User | None,
+        actor: User | str | None,
         action: str,
         resource: str,
         details: dict[str, Any] | None = None,
@@ -30,10 +31,15 @@ class AuditLogger:
         success: bool = True,
         error: str | None = None,
     ) -> dict[str, Any]:
+        actor_id = getattr(actor, "id", None) if actor is not None and not isinstance(
+            actor, str) else None
+        actor_username = getattr(
+            actor, "username", None) if actor is not None and not isinstance(actor, str) else actor
+
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "actor_id": actor.id if actor else None,
-            "actor_username": actor.username if actor else None,
+            "actor_id": actor_id,
+            "actor_username": actor_username,
             "action": action,
             "resource": resource,
             "details": details or {},

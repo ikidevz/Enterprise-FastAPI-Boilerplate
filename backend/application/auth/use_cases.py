@@ -24,14 +24,10 @@ class LoginUseCase:
 
     async def execute(self, *, username: str, password: str) -> dict[str, object]:
         stored_user = await self.repository.get_by_email(username)
-        locked_until = None
         if stored_user:
             locked_until = UserService._normalize_datetime(
                 stored_user.locked_until)
             if locked_until and locked_until > datetime.now(timezone.utc):
-                raise ForbiddenError(
-                    "Account locked due to too many failed login attempts")
-            if stored_user.failed_login_attempts >= 5 and self.user_service.verify_password(password, stored_user.hashed_password):
                 raise ForbiddenError(
                     "Account locked due to too many failed login attempts")
 
@@ -75,7 +71,6 @@ class RequestEmailVerificationUseCase:
                 lambda: email_delivery_service.send_verification_email(user.email, token))
             background_job_manager.enqueue(lambda: logger.info(
                 "email_verification_requested", extra={"email": user.email, "user_id": user.id}))
-            return {"detail": "Verification token generated", "token": token}
         return {"detail": "If the account exists, a verification link has been sent"}
 
 

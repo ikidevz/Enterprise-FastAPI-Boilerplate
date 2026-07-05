@@ -1,5 +1,6 @@
 """Domain events for enterprise-style cross-cutting behavior."""
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -16,8 +17,7 @@ class DomainEvent:
     @classmethod
     def create(cls, payload: dict[str, Any]) -> "DomainEvent":
         return cls(
-            event_id="evt-" +
-            str(abs(hash(payload.get("event_type", "domain-event")))).replace("-", ""),
+            event_id=f"evt-{uuid.uuid4()}",
             occurred_at=datetime.now(timezone.utc),
             payload=payload,
         )

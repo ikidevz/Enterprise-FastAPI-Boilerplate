@@ -37,16 +37,28 @@ class PaginatedResponse(TimestampedModel, Generic[T]):
 
 
 class UserCreate(BaseModel):
+    """Public self-registration payload."""
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     username: str = Field(min_length=3)
     password: str = Field(min_length=8)
-    role: str | None = None
-    permissions: list[str] | None = None
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
         return _validate_password_strength(value)
+
+
+class AdminUserRoleUpdate(BaseModel):
+    """Admin-only: changes a target user's role/permissions."""
+    role: str | None = None
+    permissions: list[str] | None = None
 
 
 class UserUpdate(BaseModel):
@@ -135,3 +147,7 @@ class ProductOut(TimestampedModel):
     name: str
     description: str | None = None
     price: float
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=1)

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, JSON
+from sqlalchemy import Boolean, DateTime, String, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database.base import Base
@@ -29,5 +29,7 @@ class User(Base):
         String(50), default="user", nullable=False)
     permissions: Mapped[list[str]] = mapped_column(
         JSON, default=list, nullable=False)
-    created_at: Mapped[str] = mapped_column(String(50), nullable=True)
-    updated_at: Mapped[str] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

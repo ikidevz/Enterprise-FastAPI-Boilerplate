@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import inspect
 from collections import deque
 from typing import Awaitable, Callable, Deque
@@ -14,18 +13,10 @@ class BackgroundJobManager:
         self._stop_event = asyncio.Event()
 
     async def start(self) -> None:
-        if self._task is None:
-            self._task = asyncio.create_task(self._run())
-
-    async def stop(self) -> None:
-        if self._task is None:
+        if self._task is not None and not self._task.done():
             return
-        self._stop_event.set()
-        with contextlib.suppress(asyncio.CancelledError):
-            self._task.cancel()
-        await asyncio.gather(self._task, return_exceptions=True)
-        self._task = None
         self._stop_event.clear()
+        self._task = asyncio.create_task(self._run())
 
     def enqueue(self, job: Callable[[], Awaitable[None] | None]) -> None:
         self._queue.append(job)
@@ -39,6 +30,14 @@ class BackgroundJobManager:
             result = job()
             if inspect.isawaitable(result):
                 await result
+
+    async def stop(self) -> None:
+        if self._task is None:
+            return
+        self._stop_event.set()
+        self._task.cancel()
+        await asyncio.gather(self._task, return_exceptions=True)
+        self._task = None
 
 
 background_job_manager = BackgroundJobManager()
