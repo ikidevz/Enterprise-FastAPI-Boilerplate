@@ -77,6 +77,122 @@ Infrastructure (database, infrastructure, utils, integrations, common, platform)
 
 For the full request-by-request walkthrough of how a call moves through these layers, see [DOCUMENTATION.md](DOCUMENTATION.md#2-request-lifecycle-in-detail).
 
+## HTTP Request Lifecycle
+
+Every incoming HTTP request passes through a series of middleware components before reaching an API endpoint. Each middleware focuses on a single responsibility, keeping the request pipeline modular and easy to extend.
+
+```mermaid
+flowchart TD
+
+A[Client Request]
+
+A --> B[RequestSizeLimitMiddleware]
+
+B --> C[Request Context Middleware]
+
+C --> D[Generate Request ID]
+
+D --> E[Generate Trace ID]
+
+E --> F[Bind Logging Context]
+
+F --> G{Rate Limit}
+
+G -->|Rejected| H[429 Too Many Requests]
+
+G -->|Allowed| I[OpenTelemetry Trace]
+
+I --> J[FastAPI Router]
+
+J --> K[Endpoint]
+
+K --> L[Response]
+
+L --> M[Security Headers]
+
+M --> N[Metrics]
+
+N --> O[Audit Log]
+
+O --> P[Structured Logging]
+
+P --> Q[Client Response]
+```
+
+| Stage                      | Responsibility                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------ |
+| RequestSizeLimitMiddleware | Protects the application from oversized request bodies by validating the streamed payload size.  |
+| Request Context            | Generates a unique Request ID and Trace ID for request correlation.                              |
+| Logging Context            | Binds request metadata into ContextVars so every log automatically includes request information. |
+| Rate Limiter               | Rejects clients exceeding the configured request limit with HTTP 429.                            |
+| OpenTelemetry              | Creates a tracing span around the request lifecycle for observability.                           |
+| Router                     | Resolves the incoming route and executes dependencies.                                           |
+| Endpoint                   | Runs the application or domain logic.                                                            |
+| Security Headers           | Adds common HTTP security headers before sending the response.                                   |
+| Metrics                    | Updates in-process request counters exposed through `/metrics`.                                  |
+| Audit Logger               | Records security-sensitive operations for auditing.                                              |
+| Structured Logger          | Writes request completion logs including request ID, trace ID, status code, and latency.         |
+
+### Design Principles
+
+The middleware pipeline follows a single-responsibility design where each component performs one well-defined task before passing the request to the next stage.
+
+Benefits include:
+
+- Request correlation across distributed services using Request IDs and Trace IDs.
+- Centralized security through middleware instead of individual endpoints.
+- Automatic structured logging without polluting business logic.
+- Early request rejection for oversized payloads and rate-limited clients.
+- Consistent observability through tracing, metrics, and audit logging.
+- Clean separation between infrastructure concerns and application logic.
+
+## Layer Interaction
+
+Once a request passes through the middleware pipeline, it enters the application's four-layer architecture. Each layer has a single responsibility and communicates only with its adjacent layer, reducing coupling and improving maintainability.
+
+```mermaid
+flowchart TD
+
+A[HTTP Request]
+
+A --> B[Presentation Layer]
+
+B --> C[Application Layer]
+
+C --> D[Domain Layer]
+
+D --> E[Infrastructure Layer]
+
+E --> F[(Database / Redis / External APIs)]
+
+F --> E
+
+E --> D
+
+D --> C
+
+C --> B
+
+B --> G[HTTP Response]
+```
+
+### Layer Responsibilities
+
+| Layer              | Responsibility                                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| **Presentation**   | Receives HTTP requests, performs validation, authentication, middleware execution, and returns HTTP responses.    |
+| **Application**    | Coordinates use cases, orchestrates workflows, and manages transactions without containing business rules.        |
+| **Domain**         | Implements business logic, validation rules, entities, repositories, and domain services.                         |
+| **Infrastructure** | Provides database access, Redis, email services, file storage, tracing, logging, and other external integrations. |
+
+### Design Principles
+
+- Business logic remains independent from HTTP and database implementations.
+- Infrastructure concerns are isolated behind abstractions.
+- Each layer has a single responsibility.
+- Dependencies flow inward toward the domain.
+- Features can evolve independently without affecting unrelated layers.
+
 ## Core features
 
 ### Authentication and session management

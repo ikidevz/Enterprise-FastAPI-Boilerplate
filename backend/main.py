@@ -1,4 +1,5 @@
 import uuid
+import time
 
 from fastapi import Request, WebSocket
 from fastapi.responses import JSONResponse
@@ -26,9 +27,10 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_context(request: Request, call_next):
-    request_id = request.headers.get(
-        settings.request_id_header
-    ) or str(uuid.uuid4())
+    request_id = (
+        request.headers.get(settings.request_id_header)
+        or str(uuid.uuid4())
+    )
 
     trace_id = request.headers.get("x-trace-id") or request_id
 
@@ -40,72 +42,7 @@ async def add_request_context(request: Request, call_next):
         trace_id=trace_id,
     )
 
-    def build_error_response(status_code: int, detail: str):
-        response = JSONResponse(
-            status_code=status_code,
-            content={"detail": detail},
-        )
-        response.headers[settings.request_id_header] = request_id
-        response.headers["x-trace-id"] = trace_id
-        response.headers["x-content-type-options"] = "nosniff"
-        response.headers["x-frame-options"] = "DENY"
-        response.headers["referrer-policy"] = "strict-origin-when-cross-origin"
-
-        if settings.require_https:
-            response.headers[
-                "strict-transport-security"
-            ] = "max-age=31536000; includeSubDomains"
-
-        return response
-
-    try:
-        # ------------------------------------------------------------------
-        # Rate Limiting
-        # ------------------------------------------------------------------
-        if (
-            settings.enable_rate_limiting
-            and not rate_limiter.allow_request(
-                request.client.host if request.client else "unknown",
-                request.url.path,
-                limit=settings.rate_limit_requests_per_minute,
-            )
-        ):
-            return build_error_response(
-                429,
-                "Too many requests",
-            )
-
-        # ------------------------------------------------------------------
-        # Request Size Validation (Content-Length)
-        # ------------------------------------------------------------------
-        content_length = request.headers.get("content-length")
-
-        if content_length:
-            try:
-                if int(content_length) > settings.max_request_size_bytes:
-                    return build_error_response(
-                        413,
-                        "Request body too large",
-                    )
-            except ValueError:
-                return build_error_response(
-                    400,
-                    "Invalid Content-Length header",
-                )
-
-        # ------------------------------------------------------------------
-        # Process Request
-        # ------------------------------------------------------------------
-        with trace_span(
-            "http.request",
-            method=request.method,
-            path=request.url.path,
-        ):
-            response = await call_next(request)
-
-        # ------------------------------------------------------------------
-        # Response Headers
-        # ------------------------------------------------------------------
+    def apply_security_headers(response):
         response.headers[settings.request_id_header] = request_id
         response.headers["x-trace-id"] = trace_id
         response.headers["x-content-type-options"] = "nosniff"
@@ -119,14 +56,76 @@ async def add_request_context(request: Request, call_next):
                 "strict-transport-security"
             ] = "max-age=31536000; includeSubDomains"
 
-        # ------------------------------------------------------------------
-        # Metrics
-        # ------------------------------------------------------------------
-        record_request_metrics(
-            request.method,
-            response.status_code,
-            request.url.path,
+        return response
+
+    def build_error_response(status_code: int, detail: str):
+        response = JSONResponse(
+            status_code=status_code,
+            content={"detail": detail},
         )
+        return apply_security_headers(response)
+
+    # ------------------------------------------------------------------
+    # Default values (used if an exception occurs)
+    # ------------------------------------------------------------------
+    response = None
+    status_code = 500
+    start = time.perf_counter()
+
+    try:
+        # ------------------------------------------------------------------
+        # Rate Limiting
+        # ------------------------------------------------------------------
+        client_ip = (
+            request.headers.get("x-forwarded-for", "")
+            .split(",")[0]
+            .strip()
+        )
+
+        if not client_ip:
+            client_ip = (
+                request.client.host
+                if request.client
+                else "unknown"
+            )
+
+        if (
+            settings.enable_rate_limiting
+            and not rate_limiter.allow_request(
+                client_ip,
+                request.url.path,
+                limit=settings.rate_limit_requests_per_minute,
+            )
+        ):
+            status_code = 429
+            return build_error_response(
+                429,
+                "Too many requests",
+            )
+
+        # ------------------------------------------------------------------
+        # Process Request
+        # ------------------------------------------------------------------
+        with trace_span(
+            "http.request",
+            method=request.method,
+            path=request.url.path,
+        ):
+            response = await call_next(request)
+
+        status_code = response.status_code
+
+        # ------------------------------------------------------------------
+        # Security Headers
+        # ------------------------------------------------------------------
+        apply_security_headers(response)
+
+        # ------------------------------------------------------------------
+        # Logging
+        # ------------------------------------------------------------------
+        duration_ms = (
+            time.perf_counter() - start
+        ) * 1000
 
         logger.info(
             "request_completed",
@@ -134,17 +133,22 @@ async def add_request_context(request: Request, call_next):
                 "request_id": request_id,
                 "method": request.method,
                 "path": request.url.path,
+                "status_code": status_code,
+                "duration_ms": round(duration_ms, 2),
             },
         )
 
+        # ------------------------------------------------------------------
+        # Audit Logging
+        # ------------------------------------------------------------------
         audit_logger.log(
             getattr(request.state, "user", None),
             "http.request",
             request.url.path,
             {"method": request.method},
             request=request,
-            status_code=response.status_code,
-            success=response.status_code < 400,
+            status_code=status_code,
+            success=status_code < 400,
         )
 
         return response
@@ -163,6 +167,15 @@ async def add_request_context(request: Request, call_next):
         raise
 
     finally:
+        # ------------------------------------------------------------------
+        # Metrics (always recorded)
+        # ------------------------------------------------------------------
+        record_request_metrics(
+            request.method,
+            status_code,
+            request.url.path,
+        )
+
         reset_request_context(token)
 
 
