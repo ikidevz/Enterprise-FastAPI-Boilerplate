@@ -103,7 +103,7 @@ flowchart TD
 3. **Domain layer** — business logic in services, persistence access in repositories, entities as SQLAlchemy models, and `DomainEvent`s for communicating meaningful state changes.
 4. **Infrastructure layer** — async SQLAlchemy sessions, the Redis client, email transport, explicit startup/shutdown registration for logging/cache/background jobs, and deployment-oriented configuration.
 
-For the full request-by-request walkthrough of how a call moves through these layers, see [DOCUMENTATION.md](DOCUMENTATION.md#2-request-lifecycle-in-detail).
+For the full request-by-request walkthrough of how a call moves through these layers, see [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md#2-request-lifecycle-in-detail).
 
 ## HTTP Request Lifecycle
 
