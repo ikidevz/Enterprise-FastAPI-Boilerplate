@@ -12,3 +12,5 @@ class ProductContract(BaseModel):
     name: str
     description: str | None = None
     price: float
+    created_at: str | None = None
+    updated_at: str | None = None

@@ -45,16 +45,27 @@ class UpdateUserUseCase:
         user = await self.user_service.get_by_id(user_id)
         if not user:
             raise NotFoundError("user")
-
         if user.id != current_user.id and not current_user.is_superuser:
             raise ForbiddenError("Not authorized to update this user")
 
-        safe_payload = payload.model_copy(deep=True)
+        if payload.email and payload.email != user.email:
+            if await self.user_service.repository.get_by_email(payload.email):
+                raise DuplicateResourceError(
+                    "user", message="Email already registered")
+        if payload.username and payload.username != user.username:
+            if await self.user_service.repository.get_by_username(payload.username):
+                raise DuplicateResourceError(
+                    "user", message="Username already taken")
+
         if not current_user.is_superuser:
-            safe_payload.is_superuser = None
-            safe_payload.is_active = None
-            safe_payload.role = None
-            safe_payload.permissions = None
+            update_data = payload.model_dump(exclude_unset=True)
+            for field in ("is_superuser", "is_active", "role", "permissions"):
+                update_data.pop(field, None)
+            if not update_data:
+                return self.user_service.to_public(user)
+            safe_payload = UserUpdate(**update_data)
+        else:
+            safe_payload = payload
 
         updated = await self.user_service.update(user, safe_payload)
         return self.user_service.to_public(updated)

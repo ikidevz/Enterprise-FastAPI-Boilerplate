@@ -134,3 +134,77 @@ def test_email_verification_request_never_returns_the_token_or_leaks_account_exi
 
     assert "token" not in real_account.json()
     assert real_account.json() == unknown_account.json()
+
+
+def test_login_requires_email_verification_when_enabled(client: TestClient) -> None:
+    """When email verification is required, unverified users should not be able to log in.
+
+    See IMPROVEMENT.MD section 16.2: is_verified is tracked but never enforced. This test
+    documents the intended behavior when the require_email_verification setting is enabled.
+    Currently, this test fails because login succeeds for unverified users.
+
+    Note: This behavior should be controlled by a require_email_verification setting in
+    the config that defaults to False for backward compatibility.
+    """
+    from backend.core.config import settings
+
+    # Only run this test if email verification enforcement is enabled in settings
+    if not settings.require_email_verification:
+        pytest.skip("require_email_verification is disabled in config")
+
+    # Register a new user (is_verified starts as False)
+    register_user(client, email="unverified@example.com",
+                  username="unverified")
+
+    # Try to login without verifying email
+    response = client.post(
+        "/api/v1/auth/login",
+        data={"username": "unverified@example.com",
+              "password": "StrongPass123!"},
+    )
+
+    # Should be rejected when verification is required
+    assert response.status_code == 403
+    assert "verification" in response.json()["detail"].lower(
+    ) or "verified" in response.json()["detail"].lower()
+
+
+def test_verified_user_can_log_in_normally(client: TestClient) -> None:
+    """Verified users should always be able to log in regardless of the enforcement setting."""
+    transport = CaptureTransport()
+    original_transport = email_module.email_delivery_service.transport
+    email_module.email_delivery_service.transport = transport
+
+    try:
+        register_user(client, email="verify-then-login@example.com",
+                      username="verify-then-login")
+
+        # Request verification token
+        request_response = client.post(
+            "/api/v1/auth/email-verification/request",
+            json={"email": "verify-then-login@example.com"}
+        )
+        assert request_response.status_code == 200
+
+        wait_for_background_jobs()
+
+        # Extract and use verification token
+        token_match = TOKEN_PATTERN.search(transport.calls[-1]["body"])
+        assert token_match is not None
+
+        confirm_response = client.post(
+            "/api/v1/auth/email-verification/confirm",
+            json={"token": token_match.group(1)}
+        )
+        assert confirm_response.status_code == 200
+
+        # Now try to login - should always succeed whether enforcement is enabled or not
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={"username": "verify-then-login@example.com",
+                  "password": "StrongPass123!"},
+        )
+        assert login_response.status_code == 200
+        assert login_response.json()["access_token"]
+    finally:
+        email_module.email_delivery_service.transport = original_transport

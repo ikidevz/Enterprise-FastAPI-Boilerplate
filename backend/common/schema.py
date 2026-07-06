@@ -43,6 +43,8 @@ class UserCreate(BaseModel):
     email: EmailStr
     username: str = Field(min_length=3)
     password: str = Field(min_length=8)
+    role: str | None = None
+    permissions: list[str] | None = None
 
     @field_validator("email")
     @classmethod

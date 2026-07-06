@@ -1,8 +1,6 @@
-try:
-    import socketio
-except ImportError:  # pragma: no cover - exercised in minimal environments without socketio
-    socketio = None
-
+import socketio
+from backend.core.config import settings
+from jose import JWTError, jwt as jose_jwt
 from backend.core.config import settings
 
 
@@ -43,6 +41,16 @@ else:
 
 @sio.event
 async def connect(sid, environ, auth):
+    token = (auth or {}).get("token")
+    if not token:
+        return False
+    try:
+        jose_jwt.decode(token, settings.secret_key,
+                        algorithms=[settings.algorithm])
+    except JWTError:
+        return False
+    await sio.save_session(sid, {"token": token})
+    await sio.enter_room(sid, "authenticated")
     await sio.emit("status", {"message": "connected"}, to=sid)
 
 

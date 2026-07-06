@@ -49,8 +49,6 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         update_data = obj_in.model_dump(exclude_unset=True) if hasattr(
             obj_in, "model_dump") else obj_in
         for field, value in update_data.items():
-            if value is None:
-                continue
             setattr(db_obj, field, value)
         self.db.add(db_obj)
         await self.db.flush()

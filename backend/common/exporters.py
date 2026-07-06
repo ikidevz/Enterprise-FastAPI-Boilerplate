@@ -8,6 +8,8 @@ from typing import Any
 from backend.common.observability import get_metrics_snapshot
 from backend.common.log import logger
 
+_background_tasks: set[asyncio.Task] = set()
+
 
 class Exporter:
     def __init__(self, endpoint: str | None = None) -> None:
@@ -34,4 +36,6 @@ def export_metrics() -> None:
     except RuntimeError:
         asyncio.run(metrics_exporter.export(payload))
     else:
-        asyncio.get_running_loop().create_task(metrics_exporter.export(payload))
+        task = asyncio.get_running_loop().create_task(metrics_exporter.export(payload))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)

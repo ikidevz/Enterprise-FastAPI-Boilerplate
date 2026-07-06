@@ -10,13 +10,18 @@ from backend.common.request_size import RequestSizeLimitMiddleware
 from backend.common.log import bind_request_context, logger, reset_request_context
 from backend.common.observability import get_metrics_snapshot, record_request_metrics
 from backend.common.opentelemetry import trace_span
-from backend.common.rate_limit import shared_rate_limiter
+from backend.common.rate_limit import RedisRateLimiter, shared_rate_limiter
 from backend.contracts.api_contracts import HealthResponse, MetricsResponse
 from backend.core.config import settings
-from backend.platform.runtime import PlatformRuntime
+from backend.infrastructure.runtime import PlatformRuntime
+from backend.utils.redis_client import redis_client
 
 
-rate_limiter = shared_rate_limiter
+rate_limiter = (
+    RedisRateLimiter(redis_client)
+    if settings.environment != "dev"
+    else shared_rate_limiter
+)
 app = create_app()
 
 app.add_middleware(
@@ -63,7 +68,20 @@ async def add_request_context(request: Request, call_next):
             status_code=status_code,
             content={"detail": detail},
         )
-        return apply_security_headers(response)
+
+        apply_security_headers(response)
+
+        audit_logger.log(
+            getattr(request.state, "user", None),
+            "http.request_rejected",
+            request.url.path,
+            {"reason": detail},
+            request=request,
+            status_code=status_code,
+            success=False,
+        )
+
+        return response
 
     # ------------------------------------------------------------------
     # Default values (used if an exception occurs)
@@ -76,18 +94,13 @@ async def add_request_context(request: Request, call_next):
         # ------------------------------------------------------------------
         # Rate Limiting
         # ------------------------------------------------------------------
-        client_ip = (
-            request.headers.get("x-forwarded-for", "")
-            .split(",")[0]
-            .strip()
-        )
-
-        if not client_ip:
-            client_ip = (
-                request.client.host
-                if request.client
-                else "unknown"
-            )
+        client_ip = "unknown"
+        if settings.trust_proxy_headers:
+            forwarded_for = request.headers.get("x-forwarded-for", "")
+            if forwarded_for:
+                client_ip = forwarded_for.split(",")[0].strip()
+        if client_ip == "unknown" and request.client:
+            client_ip = request.client.host
 
         if (
             settings.enable_rate_limiting

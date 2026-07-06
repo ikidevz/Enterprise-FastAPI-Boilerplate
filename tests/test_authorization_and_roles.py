@@ -132,3 +132,120 @@ def test_regular_user_cannot_change_their_own_privileged_fields(client: TestClie
     assert response.status_code == 200
     assert response.json()["is_superuser"] is False
     assert response.json()["is_active"] is True
+
+
+def test_regular_user_cannot_list_all_users(client: TestClient) -> None:
+    """Only admin/staff should be able to list all users. Regular users should get 403.
+
+    See IMPROVEMENT.MD section 1.1: GET /api/v1/users/ has no role check at all.
+    A logged-in regular user can call it and get back every user's email/username/role/permissions.
+    This test documents the intended behavior and will pass once the bug is fixed.
+    """
+    # Register two users: admin and regular
+    admin_user = register_user(client, email="admin-list@example.com",
+                               username="admin-list", role="admin")
+    regular_user = register_user(client, email="regular-list@example.com",
+                                 username="regular-list", role="user")
+
+    # Regular user tries to list all users
+    regular_token = login_user(client, email="regular-list@example.com")
+    response = client.get(
+        "/api/v1/users/", headers=auth_headers(regular_token))
+
+    # Should be forbidden
+    assert response.status_code == 403
+
+    # But admin should still be able to list
+    admin_token = login_user(client, email="admin-list@example.com")
+    admin_response = client.get("/api/v1/users/",
+                                headers=auth_headers(admin_token))
+    assert admin_response.status_code == 200
+
+
+def test_create_product_requires_admin_role(client: TestClient) -> None:
+    """Only admin/staff should be able to create products. Regular users should get 403.
+
+    See IMPROVEMENT.MD section 1.2: POST /api/v1/products/ only checks "is logged in",
+    not role. Any authenticated user can create products. This test documents the
+    intended behavior and will pass once the bug is fixed.
+    """
+    # Register regular user
+    register_user(client, email="product-creator@example.com",
+                  username="product-creator", role="user")
+    regular_token = login_user(client, email="product-creator@example.com")
+
+    # Try to create a product as regular user
+    response = client.post(
+        "/api/v1/products/",
+        headers=auth_headers(regular_token),
+        json={"name": "Unauthorized Product",
+              "price": 9.99, "description": "should fail"}
+    )
+
+    # Should be forbidden
+    assert response.status_code == 403
+
+
+def test_update_product_requires_admin_role(client: TestClient) -> None:
+    """Only admin/staff should be able to update products. Regular users should get 403.
+
+    See IMPROVEMENT.MD section 1.2: PUT /api/v1/products/{id} only checks "is logged in".
+    """
+    # Create a product as admin
+    admin_user = register_user(client, email="admin-product@example.com",
+                               username="admin-product", role="admin")
+    admin_token = login_user(client, email="admin-product@example.com")
+
+    create_response = client.post(
+        "/api/v1/products/",
+        headers=auth_headers(admin_token),
+        json={"name": "Protected Product", "price": 19.99,
+              "description": "admin created"}
+    )
+    assert create_response.status_code == 201
+    product_id = create_response.json()["id"]
+
+    # Register regular user and try to update
+    register_user(client, email="product-updater@example.com",
+                  username="product-updater", role="user")
+    regular_token = login_user(client, email="product-updater@example.com")
+
+    response = client.put(
+        f"/api/v1/products/{product_id}",
+        headers=auth_headers(regular_token),
+        json={"name": "Hijacked Product"}
+    )
+
+    assert response.status_code == 403
+
+
+def test_delete_product_requires_admin_role(client: TestClient) -> None:
+    """Only admin/staff should be able to delete products. Regular users should get 403.
+
+    See IMPROVEMENT.MD section 1.2: DELETE /api/v1/products/{id} only checks "is logged in".
+    """
+    # Create a product as admin
+    admin_user = register_user(client, email="admin-product-del@example.com",
+                               username="admin-product-del", role="admin")
+    admin_token = login_user(client, email="admin-product-del@example.com")
+
+    create_response = client.post(
+        "/api/v1/products/",
+        headers=auth_headers(admin_token),
+        json={"name": "Deletable Product", "price": 29.99,
+              "description": "admin created"}
+    )
+    assert create_response.status_code == 201
+    product_id = create_response.json()["id"]
+
+    # Register regular user and try to delete
+    register_user(client, email="product-deleter@example.com",
+                  username="product-deleter", role="user")
+    regular_token = login_user(client, email="product-deleter@example.com")
+
+    response = client.delete(
+        f"/api/v1/products/{product_id}",
+        headers=auth_headers(regular_token)
+    )
+
+    assert response.status_code == 403

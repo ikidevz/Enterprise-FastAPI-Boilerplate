@@ -10,39 +10,13 @@ from backend.common.dependencies import get_current_active_user
 from backend.common.exceptions import DomainError, NotFoundError, to_http_exception
 from backend.domain.products.repository import ProductRepository
 from backend.domain.products.service import ProductService
+from backend.common.rbac import require_role
 from backend.common.schema import ProductCreate, ProductOut, ProductUpdate
-from backend.common.tracing import trace_span
+from backend.common.opentelemetry import trace_span
 from backend.domain.users.model import User
 from backend.app.socketio_app import sio
 
 router = APIRouter(prefix="/products", tags=["products"])
-
-
-@router.post("/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
-async def create_product(
-    request: Request,
-    payload: ProductCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-) -> ProductOut:
-    with trace_span("product.create"):
-        try:
-            service = ProductService(ProductRepository(db))
-            use_case = CreateProductUseCase(service)
-            product = await use_case.execute(payload=payload)
-            await sio.emit("product_created", {"id": product.id, "name": product.name})
-            audit_logger.log(
-                current_user,
-                "product.created",
-                f"products:{product.id}",
-                {"name": product.name},
-                request=request,
-                status_code=status.HTTP_201_CREATED,
-                success=True,
-            )
-            return product
-        except DomainError as exc:
-            raise to_http_exception(exc) from exc
 
 
 @router.get("/", response_model=list[ProductOut])
@@ -74,13 +48,47 @@ async def read_product(product_id: int, db: AsyncSession = Depends(get_db)) -> P
     return ProductOut.model_validate(product)
 
 
+@router.post("/", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+async def create_product(
+    request: Request,
+    payload: ProductCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "staff")),
+) -> ProductOut:
+    with trace_span("product.create"):
+        try:
+            service = ProductService(ProductRepository(db))
+            use_case = CreateProductUseCase(service)
+            product = await use_case.execute(payload=payload)
+            await sio.emit(
+                "product_created",
+                {
+                    "message": "product created",
+                    "data": {"id": product.id, "name": product.name},
+                },
+                to="authenticated",
+            )
+            audit_logger.log(
+                current_user,
+                "product.created",
+                f"products:{product.id}",
+                {"name": product.name},
+                request=request,
+                status_code=status.HTTP_201_CREATED,
+                success=True,
+            )
+            return product
+        except DomainError as exc:
+            raise to_http_exception(exc) from exc
+
+
 @router.put("/{product_id}", response_model=ProductOut)
 async def update_product(
     request: Request,
     product_id: int,
     payload: ProductUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_role("admin", "staff")),
 ) -> ProductOut:
     try:
         service = ProductService(ProductRepository(db))
@@ -105,7 +113,7 @@ async def delete_product(
     request: Request,
     product_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_role("admin", "staff")),
 ) -> None:
     service = ProductService(ProductRepository(db))
     product = await service.get_by_id(product_id)

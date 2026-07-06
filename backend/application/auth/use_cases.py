@@ -35,8 +35,12 @@ class LoginUseCase:
         if not user:
             raise UnauthorizedError("Incorrect email or password")
 
+        if settings.require_email_verification and not user.is_verified:
+            raise ForbiddenError("Please verify your email before signing in")
+
         access_token = self.user_service.create_access_token(user)
-        refresh_token = await token_store.add_refresh_token(user.id, ttl_seconds=60 * 60 * 24 * 7)
+        ttl = settings.refresh_token_expire_days * 24 * 60 * 60
+        refresh_token = await token_store.add_refresh_token(user.id, ttl_seconds=ttl)
         return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
 
@@ -55,7 +59,8 @@ class RefreshTokenUseCase:
             raise NotFoundError("user")
 
         access_token = self.user_service.create_access_token(user)
-        rotated_refresh_token = await token_store.rotate_refresh_token(refresh_token, user.id, ttl_seconds=60 * 60 * 24 * 7)
+        ttl = settings.refresh_token_expire_days * 24 * 60 * 60
+        rotated_refresh_token = await token_store.rotate_refresh_token(refresh_token, user.id, ttl_seconds=ttl)
         return {"access_token": access_token, "refresh_token": rotated_refresh_token, "token_type": "bearer"}
 
 
@@ -119,13 +124,12 @@ class ConfirmPasswordResetUseCase:
         user_id = await password_reset_store.consume_password_reset_token(payload.token)
         if user_id is None:
             raise UnauthorizedError("Invalid or expired reset token")
-
         user = await self.repository.get_by_id(user_id)
         if not user:
             raise NotFoundError("user")
-
         service = UserService(self.repository)
         user.hashed_password = service.hash_password(payload.new_password)
         await self.db.flush()
         await self.db.refresh(user)
+        await token_store.revoke_all_for_user(user.id)
         return {"detail": "Password updated successfully"}

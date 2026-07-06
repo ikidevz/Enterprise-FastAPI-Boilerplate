@@ -84,7 +84,12 @@ def reset_shared_singletons() -> Iterator[None]:
 
 def _reset_background_job_manager() -> None:
     """Drop any queued-but-not-yet-run background jobs from a previous test."""
-    background_job_manager._queue.clear()  # type: ignore[attr-defined]
+    while not background_job_manager._queue.empty():
+        try:
+            background_job_manager._queue.get_nowait()
+            background_job_manager._queue.task_done()
+        except Exception:
+            break
 
 
 def _reset_token_stores() -> None:
@@ -123,7 +128,7 @@ async def _wait_for_background_jobs(timeout: float = 1.0) -> None:
     elapsed = 0.0
     step = 0.01
     # type: ignore[attr-defined]
-    while background_job_manager._queue and elapsed < timeout:
+    while not background_job_manager._queue.empty() and elapsed < timeout:
         await asyncio.sleep(step)
         elapsed += step
 

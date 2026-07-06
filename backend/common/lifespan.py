@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from backend.core.config import settings
 from backend.common.background_jobs import background_job_manager
 from backend.common.bootstrap import BootstrapRegistry
 from backend.common.exporters import export_metrics
@@ -17,11 +18,12 @@ def build_lifespan(rate_limiter, *, registry: BootstrapRegistry | None = None):
         logger.info("Starting application")
         rate_limiter.reset()
         await background_job_manager.start()
-        try:
-            async with db_session.engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        except Exception as exc:
-            logger.warning("Database initialization skipped: %s", exc)
+        if settings.environment == "dev":
+            try:
+                async with db_session.engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            except Exception as exc:
+                logger.warning("Database initialization skipped: %s", exc)
 
         if registry is not None:
             await registry.run_startup_hooks(app)

@@ -2,7 +2,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 
 from backend.common.dependencies import get_current_active_user
-from backend.common.tracing import trace_span
+from backend.common.opentelemetry import trace_span
 from backend.domain.users.model import User
 from backend.infrastructure.upload_storage import UploadStorage
 

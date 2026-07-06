@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
+from time import time
 
+from backend.common.exporters import export_metrics
+from backend.common.observability import metrics_collector
 from backend.common.background_jobs import background_job_manager
 from backend.common.bootstrap import BootstrapRegistry
 from backend.common.email import email_delivery_service
@@ -14,6 +17,28 @@ from backend.infrastructure.upload_storage import (
 )
 from backend.utils.redis_client import redis_client
 from backend.core.config import settings
+
+
+class PlatformRuntime:
+    """Thin runtime facade for platform-level observability and health signals."""
+
+    def __init__(self) -> None:
+        self.metrics_collector = metrics_collector
+        self.started_at = time()
+
+    def build_runtime_snapshot(self, *, environment: str) -> dict[str, object]:
+        export_metrics()
+        metrics_snapshot = self.metrics_collector.snapshot()
+        return {
+            "service": "tier4",
+            "environment": environment,
+            "uptime_seconds": int(time() - self.started_at),
+            "checks": {
+                "metrics": True,
+                "observability": True,
+            },
+            "metrics": metrics_snapshot,
+        }
 
 
 def build_infrastructure_registry(rate_limiter: Any) -> BootstrapRegistry:

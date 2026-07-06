@@ -209,7 +209,7 @@ def test_refresh_token_issues_a_new_access_and_refresh_token(client: TestClient)
     refresh_token = login_response.json()["refresh_token"]
 
     response = client.post("/api/v1/auth/refresh",
-                           params={"refresh_token": refresh_token})
+                           json={"refresh_token": refresh_token})
 
     assert response.status_code == 200
     assert response.json()["token_type"] == "bearer"
@@ -227,17 +227,17 @@ def test_refresh_token_cannot_be_reused_after_rotation(client: TestClient) -> No
     old_refresh_token = login_response.json()["refresh_token"]
 
     first_use = client.post("/api/v1/auth/refresh",
-                            params={"refresh_token": old_refresh_token})
+                            json={"refresh_token": old_refresh_token})
     assert first_use.status_code == 200
 
     reuse_attempt = client.post(
-        "/api/v1/auth/refresh", params={"refresh_token": old_refresh_token})
+        "/api/v1/auth/refresh", json={"refresh_token": old_refresh_token})
     assert reuse_attempt.status_code == 401
 
 
 def test_refresh_with_an_unknown_token_is_rejected(client: TestClient) -> None:
     response = client.post("/api/v1/auth/refresh",
-                           params={"refresh_token": "not-a-real-token"})
+                           json={"refresh_token": "not-a-real-token"})
 
     assert response.status_code == 401
 
@@ -249,11 +249,15 @@ def test_logout_revokes_the_refresh_token(client: TestClient) -> None:
         data={"username": "logout@example.com", "password": "StrongPass123!"},
     )
     refresh_token = login_response.json()["refresh_token"]
+    access_token = login_response.json()["access_token"]
 
     logout_response = client.post(
-        "/api/v1/auth/logout", params={"refresh_token": refresh_token})
+        "/api/v1/auth/logout", 
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"refresh_token": refresh_token})
     assert logout_response.status_code == 200
 
     reuse_attempt = client.post(
-        "/api/v1/auth/refresh", params={"refresh_token": refresh_token})
+        "/api/v1/auth/refresh", json={"refresh_token": refresh_token})
     assert reuse_attempt.status_code == 401
+

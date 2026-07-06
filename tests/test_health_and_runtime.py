@@ -6,7 +6,7 @@ plus the small pieces of middleware that attach to *every* response
 """
 from fastapi.testclient import TestClient
 
-from backend.platform.runtime import PlatformRuntime
+from backend.infrastructure.runtime import PlatformRuntime
 
 
 def test_health_endpoint_reports_ok_status(client: TestClient) -> None:

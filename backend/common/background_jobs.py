@@ -8,33 +8,36 @@ from typing import Awaitable, Callable, Deque
 
 class BackgroundJobManager:
     def __init__(self) -> None:
-        self._queue: Deque[Callable[[], Awaitable[None] | None]] = deque()
+        self._queue: asyncio.Queue = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
-        self._stop_event = asyncio.Event()
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
-        self._stop_event.clear()
         self._task = asyncio.create_task(self._run())
 
-    def enqueue(self, job: Callable[[], Awaitable[None] | None]) -> None:
-        self._queue.append(job)
+    def enqueue(self, job) -> None:
+        self._queue.put_nowait(job)
+        if self._task is None or self._task.done():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            self._task = loop.create_task(self._run())
 
     async def _run(self) -> None:
-        while not self._stop_event.is_set():
-            if not self._queue:
-                await asyncio.sleep(0.01)
-                continue
-            job = self._queue.popleft()
-            result = job()
-            if inspect.isawaitable(result):
-                await result
+        while True:
+            job = await self._queue.get()
+            try:
+                result = job()
+                if inspect.isawaitable(result):
+                    await result
+            finally:
+                self._queue.task_done()
 
     async def stop(self) -> None:
         if self._task is None:
             return
-        self._stop_event.set()
         self._task.cancel()
         await asyncio.gather(self._task, return_exceptions=True)
         self._task = None

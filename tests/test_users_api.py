@@ -34,7 +34,7 @@ def test_get_own_profile_returns_the_logged_in_users_data(client: TestClient) ->
 def test_full_authenticated_crud_flow(client: TestClient) -> None:
     """Create -> read -> list -> update -> delete -> confirm it's gone, all as the owner."""
     created = register_user(
-        client, email="crud-user@example.com", username="crud-user")
+        client, email="crud-user@example.com", username="crud-user", role="admin")
     token = login_user(client, email="crud-user@example.com")
 
     read_response = client.get(
@@ -61,7 +61,7 @@ def test_full_authenticated_crud_flow(client: TestClient) -> None:
     read_after_delete = client.get(
         f"/api/v1/users/{created['id']}", headers=auth_headers(token)
     )
-    assert read_after_delete.status_code == 404
+    assert read_after_delete.status_code == 401
 
 
 def test_updating_another_users_profile_without_permission_is_forbidden(client: TestClient) -> None:

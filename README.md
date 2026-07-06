@@ -35,12 +35,13 @@ Tier 4 Architecture is a backend starter focused on clarity and maintainability.
 - JWT-based authentication with access + refresh tokens, password reset, email verification, and account lockout after repeated failed logins
 - Role/permission primitives for admin-style access control
 - A sample `products` module demonstrating a second domain with search, sort, and pagination-style listing
+- Admin-only product write operations and admin-only user listing, while product reads remain public
 - Multipart file upload with authentication, local storage, and static serving
 - Middleware for request correlation (request ID / trace ID), rate limiting, and payload-size protection
 - Environment-profile configuration with `*_FILE`-based secret resolution for container/secret-mount deployments
 - Pluggable email delivery (console backend for local dev, SMTP for real sending)
 - An explicit infrastructure-registration layer wiring logging, Redis, background jobs, and email onto `app.state`
-- Socket.IO + a bare WebSocket endpoint for real-time experimentation
+- Socket.IO + a bare WebSocket endpoint for real-time experimentation, including authenticated product-created broadcasts
 - Alembic migration scaffolding, a local seed-data script, and an automated test suite covering the flows above
 - Docker + Docker Compose (API + Postgres + Redis) and a GitHub Actions CI workflow (lint + test) out of the box
 
@@ -234,15 +235,15 @@ B --> G[HTTP Response]
 ### User and admin workflows
 
 - CRUD endpoints for users, plus a `/me` profile route for the current authenticated user
-- Admin-style listing endpoint and a permissions example endpoint demonstrating policy-based access checks
+- Admin-only user listing and a permissions example endpoint demonstrating policy-based access checks
 - Role (`role`) and explicit `permissions` list on the user model, evaluated through a small `AuthorizationPolicy`/`PermissionPolicy` layer
 
 ### Product module
 
 A second domain module included to show the same layered pattern applied twice:
 
-- Create, read, update, delete
-- Search (`search`), pagination-style listing (`skip`/`limit`), and sorting (`sort`/`order`) on the list endpoint
+- Create, read, update, delete for authenticated admin/staff users
+- Search (`search`), pagination-style listing (`skip`/`limit`), and sorting (`sort`/`order`) on the public list endpoint
 - OpenAPI examples on the request/response schemas
 
 ### Files and media
@@ -261,7 +262,7 @@ A second domain module included to show the same layered pattern applied twice:
 
 ### Real-time support
 
-- Socket.IO server mounted at `/socket.io` with `connect`/`disconnect`/`ping` handlers and an example client-triggered event
+- Socket.IO server mounted at `/socket.io` with `connect`/`disconnect`/`ping` handlers and authenticated product-created broadcasts
 - A bare WebSocket endpoint at `/ws/health` for connection testing
 
 ## Project structure

@@ -5,6 +5,9 @@ test_health_and_runtime.py since it's more of a health-check than a
 "real-time feature" test. This file is about the Socket.IO server itself.
 """
 import asyncio
+import inspect
+
+import pytest
 
 from backend.app import socketio_app
 
@@ -44,3 +47,11 @@ def test_creating_a_product_via_the_rest_api_broadcasts_a_socketio_event() -> No
 
     source = inspect.getsource(products_router)
     assert "sio.emit" in source, "Expected the product creation route to emit a Socket.IO event"
+
+
+def test_socket_io_connect_handler_exists() -> None:
+    """Socket.IO server should have a connect handler."""
+    source = inspect.getsource(socketio_app)
+    assert "@sio.event" in source or "def connect" in source, \
+        "Socket.IO server should have a connect handler"
+

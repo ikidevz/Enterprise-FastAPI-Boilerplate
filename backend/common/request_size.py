@@ -1,11 +1,17 @@
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
 from starlette.responses import JSONResponse
 
+from backend.core.config import settings
+
 
 class RequestSizeLimitMiddleware:
     def __init__(self, app: ASGIApp, max_body_size: int):
         self.app = app
-        self.max_body_size = max_body_size
+        self._max_body_size = max_body_size
+
+    @property
+    def max_body_size(self) -> int:
+        return getattr(settings, "max_request_size_bytes", self._max_body_size)
 
     async def __call__(
         self,
@@ -16,6 +22,25 @@ class RequestSizeLimitMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+
+        # If the client declares a Content-Length larger than the configured
+        # maximum, reject immediately rather than handing the request to the
+        # app and waiting for body data to arrive.
+        max_size = self.max_body_size
+        for name, value in scope.get("headers", []):
+            if name.lower() == b"content-length":
+                try:
+                    declared_length = int(value.decode("ascii"))
+                except ValueError:
+                    break
+                if declared_length > max_size:
+                    response = JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+                    await response(scope, receive, send)
+                    return
+                break
 
         received = 0
 
@@ -29,7 +54,7 @@ class RequestSizeLimitMiddleware:
 
                 received += len(body)
 
-                if received > self.max_body_size:
+                if received > max_size:
                     response = JSONResponse(
                         status_code=413,
                         content={"detail": "Request body too large"},

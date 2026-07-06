@@ -56,7 +56,10 @@ class AuditLogger:
             action,
             resource,
             success,
-            extra={"request_id": entry["request_id"]},
+            extra={
+                "request_id": entry["request_id"],
+                "trace_id": entry.get("request_id") if entry.get("request_id") else "-",
+            },
         )
         return entry
 

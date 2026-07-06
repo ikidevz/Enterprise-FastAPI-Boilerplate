@@ -1,6 +1,7 @@
 # backend/common/opentelemetry.py
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -100,8 +101,15 @@ def get_tracing_configuration() -> dict[str, object]:
     tracing config still gets exactly this dict back.
     """
     settings = _get_settings()
+    enabled = settings.enable_tracing
+    mode = os.getenv("OTEL_MODE") or settings.otel_mode
+    endpoint = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT") or settings.otel_exporter_otlp_endpoint
+    if os.getenv("ENABLE_TRACING") is not None:
+        enabled = os.getenv("ENABLE_TRACING").lower() in (
+            "1", "true", "yes", "on")
     return {
-        "enabled": settings.enable_tracing,
-        "mode": settings.otel_mode,
-        "endpoint": settings.otel_exporter_otlp_endpoint,
+        "enabled": enabled,
+        "mode": mode,
+        "endpoint": endpoint,
     }

@@ -23,3 +23,12 @@ class RefreshTokenResponseContract(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int | None = None
+
+
+class AuthErrorContract(BaseModel):
+    """Contract for auth failures surfaced to clients."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message: str
+    error_code: str | None = None

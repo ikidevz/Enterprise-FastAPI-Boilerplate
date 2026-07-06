@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.auth import (
@@ -10,11 +10,9 @@ from backend.application.auth import (
     RequestEmailVerificationUseCase,
     RequestPasswordResetUseCase,
 )
-from backend.database.session import get_db
-from backend.domain.users.repository import UserRepository
-from backend.domain.users.service import UserService
+from backend.core.config import settings
 from backend.common.audit import audit_logger
-from backend.common.dependencies import get_current_active_user
+from backend.common.dependencies import get_current_active_user, security, revocation_store, get_current_active_user
 from backend.common.exceptions import DomainError, UnauthorizedError, to_http_exception
 from backend.common.schema import (
     EmailVerificationConfirm,
@@ -24,7 +22,13 @@ from backend.common.schema import (
     UserOut,
     RefreshTokenRequest
 )
-from backend.common.tracing import trace_span
+from backend.common.opentelemetry import trace_span
+from backend.database.session import get_db
+from backend.domain.users.repository import UserRepository
+from backend.domain.users.service import UserService
+from backend.domain.users.model import User
+
+from jose import jwt as jose_jwt
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,14 +71,18 @@ async def login(
 
 
 @router.post("/refresh")
-async def refresh_token(request: Request, db: AsyncSession = Depends(get_db), refresh_token: str | None = None):
-    if not refresh_token:
+async def refresh_token(
+    request: Request,
+    payload: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.refresh_token:
         raise to_http_exception(UnauthorizedError("Invalid refresh token"))
     try:
         repository = UserRepository(db)
         service = UserService(repository)
         use_case = RefreshTokenUseCase(service, repository)
-        result = await use_case.execute(refresh_token=refresh_token)
+        result = await use_case.execute(refresh_token=payload.refresh_token)
         audit_logger.log(
             None,
             "auth.refresh",
@@ -99,21 +107,22 @@ async def refresh_token(request: Request, db: AsyncSession = Depends(get_db), re
 
 
 @router.post("/logout")
-async def logout(request: Request, refresh_token: str | None = None) -> dict[str, str]:
-    if not refresh_token:
-        raise to_http_exception(UnauthorizedError("Invalid refresh token"))
+async def logout(
+    request: Request,
+    payload: RefreshTokenRequest,
+    current_user: User = Depends(get_current_active_user),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict[str, str]:
     from backend.application.auth import token_store
+    await token_store.revoke(payload.refresh_token)
+    access_payload = jose_jwt.decode(
+        credentials.credentials, settings.secret_key, algorithms=[settings.algorithm])
+    jti = access_payload.get("jti")
+    if jti:
+        await revocation_store.revoke_jti(jti)
 
-    await token_store.revoke(refresh_token)
-    audit_logger.log(
-        None,
-        "auth.logout",
-        "session",
-        {"refresh_token_present": bool(refresh_token)},
-        request=request,
-        status_code=status.HTTP_200_OK,
-        success=True,
-    )
+    audit_logger.log(current_user, "auth.logout", "session", {},
+                     request=request, status_code=status.HTTP_200_OK, success=True)
     return {"detail": "Logged out"}
 
 

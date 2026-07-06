@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = Field(default=120)
     request_id_header: str = Field(default="x-request-id")
     max_request_size_bytes: int = Field(default=2 * 1024 * 1024)
+    require_email_verification: bool = Field(default=False)
     upload_dir: str = Field(default="./uploads")
     upload_backend: Literal["local", "s3", "azure"] = Field(
         default="local",
@@ -165,6 +166,7 @@ class Settings(BaseSettings):
     default_admin_password: str = Field(default="Admin123!")
     require_https: bool = Field(default=False)
     enable_tracing: bool = Field(default=True)
+    trust_proxy_headers: bool = Field(default=False)
     otel_mode: str = Field(
         default="basic", validation_alias=AliasChoices("OTEL_MODE", "otel_mode"))
     otel_exporter_otlp_endpoint: str | None = Field(
@@ -174,6 +176,8 @@ class Settings(BaseSettings):
     )
     otel_service_name: str = Field(default="tier4", validation_alias=AliasChoices(
         "OTEL_SERVICE_NAME", "otel_service_name"))
+
+    refresh_token_expire_days: int = Field(default=7)
 
     @field_validator("environment", "app_env")
     @classmethod
@@ -250,6 +254,7 @@ class Settings(BaseSettings):
         return self
 
 
+@lru_cache
 def get_settings() -> Settings:
     _normalize_env_list_settings()
     environment = os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "dev"
@@ -279,5 +284,4 @@ def get_settings() -> Settings:
     return settings
 
 
-get_settings.cache_clear = lambda: None
 settings = get_settings()

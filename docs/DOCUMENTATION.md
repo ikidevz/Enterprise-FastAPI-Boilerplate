@@ -182,7 +182,7 @@ All routes below are mounted under the `settings.api_v1_str` prefix, default `/a
 | POST      | `/api/v1/users/`                          | No (public registration)                         | Create a new user account.                                                                                      |
 | GET       | `/api/v1/users/me`                        | Yes                                              | Get the current authenticated user's profile.                                                                   |
 | GET       | `/api/v1/users/{user_id}`                 | **No** ⚠️                                        | Get any user's profile by id.                                                                                   |
-| GET       | `/api/v1/users/`                          | **No** ⚠️                                        | List all users.                                                                                                 |
+| GET       | `/api/v1/users/`                          | Yes (admin only)                                 | List all users.                                                                                                 |
 | PUT       | `/api/v1/users/{user_id}`                 | Yes                                              | Update a user; non-superusers cannot change `is_superuser`, `is_active`, `role`, or `permissions`.              |
 | DELETE    | `/api/v1/users/{user_id}`                 | **No** ⚠️                                        | Delete a user by id.                                                                                            |
 | POST      | `/api/v1/auth/login`                      | No (this _is_ the login)                         | OAuth2 password-flow login; returns access + refresh tokens.                                                    |
@@ -193,11 +193,11 @@ All routes below are mounted under the `settings.api_v1_str` prefix, default `/a
 | POST      | `/api/v1/auth/password-reset/request`     | No                                               | Requests a password-reset token be sent.                                                                        |
 | POST      | `/api/v1/auth/password-reset/confirm`     | No (bearer of the token)                         | Confirms a password reset with a new password.                                                                  |
 | GET       | `/api/v1/auth/me`                         | Yes                                              | Alias of `/users/me`, returns the current user.                                                                 |
-| POST      | `/api/v1/products/`                       | Yes                                              | Create a product.                                                                                               |
+| POST      | `/api/v1/products/`                       | Yes (admin/staff only)                           | Create a product.                                                                                               |
 | GET       | `/api/v1/products/`                       | No (public catalog browsing — by design)         | List products; supports `search`, `skip`, `limit`, `sort`, `order`.                                             |
 | GET       | `/api/v1/products/{product_id}`           | No (public)                                      | Get a single product.                                                                                           |
-| PUT       | `/api/v1/products/{product_id}`           | Yes                                              | Update a product.                                                                                               |
-| DELETE    | `/api/v1/products/{product_id}`           | Yes                                              | Delete a product.                                                                                               |
+| PUT       | `/api/v1/products/{product_id}`           | Yes (admin/staff only)                           | Update a product.                                                                                               |
+| DELETE    | `/api/v1/products/{product_id}`           | Yes (admin/staff only)                           | Delete a product.                                                                                               |
 | POST      | `/api/v1/uploads/`                        | Yes                                              | Upload a file (multipart). Stored under the configured upload dir, served back from `/static/uploads`.          |
 | GET       | `/api/v1/admin/users`                     | Yes (`require_role("admin")`, see ⚠️ note below) | List users via the admin surface.                                                                               |
 | GET       | `/api/v1/admin/permissions`               | Yes                                              | Example endpoint demonstrating the `PermissionPolicy` evaluation flow.                                          |
@@ -206,11 +206,11 @@ All routes below are mounted under the `settings.api_v1_str` prefix, default `/a
 | GET       | `/metrics`                                | No                                               | In-process request-count/status-code/method/path metrics snapshot.                                              |
 | GET       | `/runtime`                                | No                                               | Operational snapshot (uptime, metrics) via `PlatformRuntime`.                                                   |
 | WS        | `/ws/health`                              | No                                               | Trivial WebSocket that accepts, sends `{"status": "connected"}`, and closes.                                    |
-| Socket.IO | `/socket.io`                              | No                                               | Socket.IO server; handles `connect`, `disconnect`, `ping`, and a client-triggered `product_created` echo event. |
+| Socket.IO | `/socket.io`                              | No                                               | Socket.IO server; handles `connect`, `disconnect`, `ping`, and authenticated `product_created` broadcasts. |
 
-**⚠️ marked rows** are endpoints that currently have no authentication/authorization dependency at all, and are flagged in detail in **§11 Known limitations**. If you're using this boilerplate as a starting point for something real, treat every ⚠️ row as something to fix before going further, not as a style preference.
+**⚠️ marked rows** are endpoints that are intentionally public or have a narrower auth contract than the rest of the system. Current examples are the public product catalog and the public registration route. The user-listing and product-write routes now require authenticated admin/staff access, so they are no longer marked as public.
 
-The `require_role("admin")` dependency on `/api/v1/admin/users` currently checks `current_user.role` against the given role names — see §11 for a note on a historical bug in this check that has since been called out for correction; verify your local copy has the fixed version (comparing `.role`, not `.username`) before relying on it.
+The `require_role("admin")` dependency on `/api/v1/admin/users` checks `current_user.role` against the given role names and is wired into the current router implementation.
 
 ---
 

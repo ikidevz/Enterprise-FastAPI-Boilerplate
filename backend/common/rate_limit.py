@@ -2,6 +2,8 @@ from collections import defaultdict
 from threading import Lock
 from time import time
 
+from backend.common.log import logger
+
 
 class RateLimiter:
     def __init__(self) -> None:

@@ -73,6 +73,7 @@ if not logger.handlers:
 logger.addFilter(RequestIdFilter())
 
 root_logger = logging.getLogger()
+root_logger.addFilter(RequestIdFilter())
 for handler in root_logger.handlers:
     if not any(isinstance(existing_filter, RequestIdFilter) for existing_filter in handler.filters):
         handler.addFilter(RequestIdFilter())
