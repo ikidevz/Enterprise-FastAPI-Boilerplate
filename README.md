@@ -58,16 +58,44 @@ Whether you're building an internal tool, an early-stage SaaS backend, or a lear
 
 ## Architecture
 
-```
-Presentation (backend/app)        →  routers, schemas, WebSocket/Socket.IO, middleware
-        │
-Application (backend/application) →  use cases, ports (interfaces for outbound calls)
-        │
-Domain (backend/domain)           →  services (business rules), repositories, models, events
-        │
-Infrastructure (database, infrastructure, utils, integrations, common, platform)
-                                   →  DB engine/session, Redis, email transport, runtime wiring,
-                                      logging, rate limiting, auditing, tracing, exceptions
+```mermaid
+flowchart TD
+
+    A["Presentation Layer<br/><br/>
+    <b>backend/app</b><br/>
+    • Routers<br/>
+    • Request/Response Schemas<br/>
+    • Middleware<br/>
+    • WebSocket / Socket.IO"]
+
+    B["Application Layer<br/><br/>
+    <b>backend/application</b><br/>
+    • Use Cases<br/>
+    • Application Services<br/>
+    • Ports (Interfaces)"]
+
+    C["Domain Layer<br/><br/>
+    <b>backend/domain</b><br/>
+    • Business Services<br/>
+    • Domain Models<br/>
+    • Repositories<br/>
+    • Domain Events"]
+
+    D["Infrastructure Layer<br/><br/>
+    <b>backend/infrastructure</b><br/>
+    • Database Engine & Session<br/>
+    • Redis<br/>
+    • Email Transport<br/>
+    • Runtime Wiring<br/>
+    • Logging<br/>
+    • Rate Limiting<br/>
+    • Audit Logging<br/>
+    • OpenTelemetry Tracing<br/>
+    • Exception Handling"]
+
+    A --> B
+    B --> C
+    C --> D
 ```
 
 1. **Presentation layer** — FastAPI routers and handlers, Pydantic request/response validation, WebSocket and Socket.IO endpoints, OpenAPI documentation.
