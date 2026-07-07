@@ -5,7 +5,7 @@ just records what would have been sent so we can check the content.
 """
 from conftest import CaptureTransport
 from backend.common import email as email_module
-from backend.common.email import EmailDeliveryService
+from backend.infrastructure.email.transport import EmailDeliveryService
 
 
 def test_password_reset_and_verification_emails_contain_the_right_tokens() -> None:
@@ -23,7 +23,7 @@ def test_password_reset_and_verification_emails_contain_the_right_tokens() -> No
 
 def test_console_backend_is_the_default() -> None:
     """Local dev should never accidentally try to send real email."""
-    from backend.common.email import ConsoleEmailTransport
+    from backend.infrastructure.email.transport import ConsoleEmailTransport
 
     service = EmailDeliveryService()
 

@@ -22,7 +22,7 @@ import pytest
 
 from backend.common.background_jobs import BackgroundJobManager
 from backend.common.exporters import export_metrics
-from backend.common.opentelemetry import trace_span
+from backend.observability.tracing import trace_span
 from backend.resilience.retry import CircuitBreaker, CircuitBreakerOpenError, retry_async
 
 

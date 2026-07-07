@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections import deque
-from typing import Awaitable, Callable, Deque
 
 
 class BackgroundJobManager:
