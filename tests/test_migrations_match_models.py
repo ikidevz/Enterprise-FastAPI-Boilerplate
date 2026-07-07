@@ -1,0 +1,34 @@
+import subprocess
+import sys
+
+from backend.database.base import Base
+
+
+def test_alembic_upgrade_head_runs_cleanly_against_a_throwaway_database(tmp_path) -> None:
+    db_path = tmp_path / "migration_check.db"
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-x",
+            f"sqlalchemy.url=sqlite:///{db_path}", "upgrade", "head"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_migrated_schema_has_every_column_the_orm_model_declares() -> None:
+    import asyncio
+    from sqlalchemy import inspect
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from backend.domain.users.model import User
+
+    async def check() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.connect() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            columns = await conn.run_sync(
+                lambda sync_conn: {c["name"]
+                                   for c in inspect(sync_conn).get_columns("users")}
+            )
+        model_columns = {c.name for c in User.__table__.columns}
+        assert model_columns <= columns, f"Migration is missing: {model_columns - columns}"
+
+    asyncio.run(check())

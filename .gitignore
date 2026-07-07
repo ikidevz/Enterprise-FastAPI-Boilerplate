@@ -44,3 +44,4 @@ Thumbs.db
 uploads/
 !backend/app/api/v1/uploads/
 bin/
+logs/

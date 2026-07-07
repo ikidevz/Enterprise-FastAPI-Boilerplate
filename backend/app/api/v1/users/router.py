@@ -115,10 +115,10 @@ async def delete_user(
             "Not authorized to delete this user"))
     await service.delete(user)
     audit_logger.log(
-        None,
+        current_user,
         "user.deleted",
         f"users:{user_id}",
-        {"email": user.email},
+        {"email": user.email, "deleted_user_id": user_id},
         request=request,
         status_code=status.HTTP_204_NO_CONTENT,
         success=True,

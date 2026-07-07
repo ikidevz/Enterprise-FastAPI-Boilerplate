@@ -1,7 +1,7 @@
 import uuid
 import time
 
-from fastapi import Request, WebSocket
+from fastapi import Depends, Request, WebSocket
 from fastapi.responses import JSONResponse
 
 from backend.app.factory import create_app
@@ -95,13 +95,18 @@ async def add_request_context(request: Request, call_next):
         # ------------------------------------------------------------------
         # Rate Limiting
         # ------------------------------------------------------------------
-        client_ip = "unknown"
-        if settings.trust_proxy_headers:
+        peer_ip = request.client.host if request.client else "unknown"
+        client_ip = peer_ip
+
+        if settings.trust_proxy_headers and peer_ip in settings.trusted_proxy_ips:
             forwarded_for = request.headers.get("x-forwarded-for", "")
             if forwarded_for:
                 client_ip = forwarded_for.split(",")[0].strip()
-        if client_ip == "unknown" and request.client:
-            client_ip = request.client.host
+        elif settings.trust_proxy_headers and not settings.trusted_proxy_ips:
+            logger.warning(
+                "trust_proxy_headers_enabled_without_allowlist",
+                extra={"peer_ip": peer_ip},
+            )
 
         if (
             settings.enable_rate_limiting
@@ -213,7 +218,7 @@ async def websocket_health(websocket: WebSocket) -> None:
 
 
 @app.get("/metrics", response_model=MetricsResponse)
-async def metrics() -> MetricsResponse:
+async def metrics(current_user=Depends(require_role("admin"))) -> MetricsResponse:
     snapshot = get_metrics_snapshot()
     return MetricsResponse(
         status="ok",
@@ -225,5 +230,5 @@ async def metrics() -> MetricsResponse:
 
 
 @app.get("/runtime")
-async def runtime_snapshot() -> dict[str, object]:
+async def runtime_snapshot(current_user=Depends(require_role("admin"))) -> dict[str, object]:
     return platform_runtime.build_runtime_snapshot(environment=settings.environment)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 
+from backend.observability.logging import logger
+
 
 class BackgroundJobManager:
     def __init__(self) -> None:
@@ -30,6 +32,12 @@ class BackgroundJobManager:
                 result = job()
                 if inspect.isawaitable(result):
                     await result
+            except Exception as exc:
+                logger.error(
+                    "background_job_failed",
+                    extra={"job": getattr(
+                        job, "__qualname__", repr(job)), "error": str(exc)},
+                )
             finally:
                 self._queue.task_done()
 

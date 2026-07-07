@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import collections
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
-
+from pathlib import Path
 from fastapi import Request
 
 from backend.domain.users.model import User
@@ -12,9 +13,12 @@ from backend.observability.logging import get_request_id
 
 
 class AuditLogger:
-    def __init__(self, *, max_entries: int = 10_000) -> None:
+    def __init__(self, *, max_entries: int = 10_000, persist_path: str | None = None) -> None:
         self.entries: collections.deque = collections.deque(maxlen=max_entries)
         self.logger = logging.getLogger("tier4.audit")
+
+        self._persist_path = Path(persist_path or "logs/audit.jsonl")
+        self._persist_path.parent.mkdir(parents=True, exist_ok=True)
 
     def clear(self) -> None:
         self.entries.clear()
@@ -61,6 +65,13 @@ class AuditLogger:
                 "trace_id": entry.get("request_id") if entry.get("request_id") else "-",
             },
         )
+        try:
+            with self._persist_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, default=str) + "\n")
+        except OSError as exc:
+            self.logger.error("audit_persist_failed",
+                              extra={"error": str(exc)})
+
         return entry
 
 

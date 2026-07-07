@@ -43,8 +43,6 @@ def test_uploading_without_a_filename_is_rejected(client: TestClient) -> None:
 
 
 def test_upload_rejects_a_path_traversal_filename(client: TestClient, tmp_path) -> None:
-    from backend.app.api.v1.uploads import router as uploads_router
-
     register_user(client, email="upload-path@example.com",
                   username="upload-path")
     token = login_user(client, email="upload-path@example.com")
@@ -57,9 +55,10 @@ def test_upload_rejects_a_path_traversal_filename(client: TestClient, tmp_path) 
     )
 
     if response.status_code == 201:
-        stored_path = response.json()["stored_path"]
-        # The stored path should still be inside the configured upload directory.
-        assert str(Path(settings.upload_dir).resolve()) in stored_path
+        body = response.json()
+        assert body["stored_as"].endswith(".txt")
+        assert body["stored_path"].startswith("/api/v1/uploads/")
+        assert body["stored_path"].endswith(body["stored_as"])
     else:
         assert response.status_code in (400, 422)
 

@@ -29,11 +29,12 @@ from backend.database.session import get_db
 from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
 from backend.domain.users.model import User
-
+from backend.resilience.rate_limit import shared_rate_limiter
 from jose import jwt as jose_jwt
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+LOGIN_ATTEMPTS_PER_MINUTE = 10
 
 
 @router.post("/login", summary="Sign in", response_description="Access and refresh tokens", response_model=TokenResponse)
@@ -42,6 +43,14 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    throttle_key = f"{client_ip}:{form_data.username.lower()}"
+    if not await shared_rate_limiter.allow_request(
+        throttle_key, "auth:login", limit=LOGIN_ATTEMPTS_PER_MINUTE
+    ):
+        raise to_http_exception(UnauthorizedError(
+            "Too many login attempts, try again shortly"))
+
     with trace_span("auth.login"):
         try:
             repository = UserRepository(db)

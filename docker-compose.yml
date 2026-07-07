@@ -15,16 +15,16 @@ services:
     environment:
       POSTGRES_DB: tier4
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real password in .env}
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?set a real password in .env}",
+      ]
 
 volumes:
   postgres_data:

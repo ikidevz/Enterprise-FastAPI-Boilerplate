@@ -142,8 +142,9 @@ def test_account_locks_after_five_failed_login_attempts(client: TestClient) -> N
         "/api/v1/auth/login",
         data={"username": "lockout@example.com", "password": "StrongPass123!"},
     )
-    assert locked_response.status_code == 403
-    assert "locked" in locked_response.json()["detail"].lower()
+    assert locked_response.status_code == 401
+    assert "incorrect email or password" in locked_response.json()[
+        "detail"].lower()
 
 
 def test_account_can_log_in_again_once_the_lockout_window_has_expired(client: TestClient) -> None:

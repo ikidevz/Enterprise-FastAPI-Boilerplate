@@ -23,15 +23,8 @@ class LoginUseCase:
         self.repository = repository
 
     async def execute(self, *, username: str, password: str) -> dict[str, object]:
-        stored_user = await self.repository.get_by_email(username)
-        if stored_user:
-            locked_until = UserService._normalize_datetime(
-                stored_user.locked_until)
-            if locked_until and locked_until > datetime.now(timezone.utc):
-                raise ForbiddenError(
-                    "Account locked due to too many failed login attempts")
-
-        user = await self.user_service.authenticate(username, password)
+        normalized_username = username.strip().lower()
+        user = await self.user_service.authenticate(normalized_username, password)
         if not user:
             raise UnauthorizedError("Incorrect email or password")
 

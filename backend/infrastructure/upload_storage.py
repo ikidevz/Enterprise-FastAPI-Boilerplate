@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from uuid import uuid4
 from pathlib import Path
 from typing import Any
 
@@ -16,24 +17,18 @@ class LocalUploadStorage(UploadStorage):
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
-    async def save(self, file_bytes: bytes, original_filename: str) -> dict[str, str]:
-        from uuid import uuid4
-
-        safe_name = Path(original_filename).name
-        if not safe_name:
-            raise ValueError("filename is required")
-
-        suffix = Path(safe_name).suffix.lower()
+    async def save(self, contents: bytes, original_filename: str) -> dict[str, str]:
+        suffix = Path(original_filename).suffix
         stored_name = f"{uuid4().hex}{suffix}"
         destination = (self.upload_dir / stored_name).resolve()
-        if self.upload_dir.resolve() not in destination.parents and destination != self.upload_dir.resolve():
-            raise ValueError("Invalid filename")
-
-        destination.write_bytes(file_bytes)
+        if self.upload_dir.resolve() not in destination.parents:
+            raise ValueError(
+                "Resolved upload path escapes the upload directory")
+        destination.write_bytes(contents)
         return {
-            "filename": safe_name,
+            "filename": original_filename,
             "stored_as": stored_name,
-            "stored_path": str(destination),
+            "stored_path": f"/api/v1/uploads/{stored_name}",
         }
 
 

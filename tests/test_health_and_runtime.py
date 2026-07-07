@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from backend.infrastructure.runtime import PlatformRuntime
+from conftest import auth_headers, login_user, register_user
 
 
 def test_health_endpoint_reports_ok_status(client: TestClient) -> None:
@@ -38,8 +39,16 @@ def test_metrics_endpoint_counts_requests(client: TestClient) -> None:
     for why this doesn't aggregate across multiple workers/replicas - here we
     just check it counts requests within a single process correctly.
     """
+    register_user(
+        client,
+        email="metrics-admin@example.com",
+        username="metrics-admin",
+        role="admin",
+    )
+    token = login_user(client, email="metrics-admin@example.com")
+
     client.get("/health")
-    response = client.get("/metrics")
+    response = client.get("/metrics", headers=auth_headers(token))
 
     assert response.status_code == 200
     body = response.json()
@@ -49,7 +58,15 @@ def test_metrics_endpoint_counts_requests(client: TestClient) -> None:
 
 def test_runtime_endpoint_reports_environment_and_uptime(client: TestClient) -> None:
     """/runtime is the operational snapshot behind PlatformRuntime - env, uptime, metrics."""
-    response = client.get("/runtime")
+    register_user(
+        client,
+        email="runtime-admin@example.com",
+        username="runtime-admin",
+        role="admin",
+    )
+    token = login_user(client, email="runtime-admin@example.com")
+
+    response = client.get("/runtime", headers=auth_headers(token))
 
     assert response.status_code == 200
     body = response.json()

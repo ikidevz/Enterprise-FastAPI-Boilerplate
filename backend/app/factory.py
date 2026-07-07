@@ -25,20 +25,16 @@ def create_app(rate_limiter=None) -> FastAPI:
 
     infrastructure_registry = build_infrastructure_registry(rate_limiter)
     lifespan = build_lifespan(rate_limiter, registry=infrastructure_registry)
+    is_dev = settings.environment == "dev"
 
     app = FastAPI(
         title=settings.project_name,
         version="0.1.0",
         description="Production-grade FastAPI 4-tier boilerplate with authentication, CRUD, permissions, and real-time support.",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url="/docs" if is_dev else None,
+        redoc_url="/redoc" if is_dev else None,
+        openapi_url="/openapi.json" if is_dev else None,
         lifespan=lifespan,
-        openapi_tags=[
-            {"name": "auth", "description": "Authentication, token refresh, and password reset."},
-            {"name": "users", "description": "User registration, profile access, and account updates."},
-            {"name": "products", "description": "Example product CRUD module."},
-            {"name": "health", "description": "Readiness and health probes."},
-        ],
     )
 
     @app.exception_handler(DomainHTTPException)

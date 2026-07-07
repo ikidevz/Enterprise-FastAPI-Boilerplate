@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import backend.main as main_module
 from backend.observability.audit import audit_logger
 from backend.common.background_jobs import background_job_manager
-from backend.common.rate_limit import shared_rate_limiter
+from backend.resilience.rate_limit import shared_rate_limiter
 from sqlalchemy import text
 from backend.core.config import settings
 from backend.database import session as db_session

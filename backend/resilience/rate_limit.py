@@ -51,8 +51,9 @@ class RedisRateLimiter:
             _, _, count, _ = await pipe.execute()
             return count <= limit
         except Exception as exc:
-            logger.warning(
-                "rate_limiter_redis_unavailable",
+
+            logger.error(
+                "rate_limiter_bypassed_due_to_backend_outage",
                 extra={"operation": "allow_request", "error": str(exc)},
             )
-            return False
+            return True

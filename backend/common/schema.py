@@ -1,12 +1,14 @@
 import re
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 T = TypeVar("T")
 PASSWORD_PATTERN = re.compile(
     r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$")
+
+UserRole = Literal["user", "staff", "admin"]
 
 
 def _validate_password_strength(password: str) -> str:
@@ -67,7 +69,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8)
     is_superuser: bool | None = None
     is_active: bool | None = None
-    role: str | None = None
+    role: UserRole | None = None
     permissions: list[str] | None = None
 
     @field_validator("password")
@@ -151,3 +153,8 @@ class ProductOut(TimestampedModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(min_length=1)
+
+
+class AdminUserRoleUpdate(BaseModel):
+    role: UserRole | None = None
+    permissions: list[str] | None = None
