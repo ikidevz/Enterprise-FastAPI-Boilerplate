@@ -47,9 +47,11 @@ class CaptureTransport:
     """
 
     def __init__(self) -> None:
+        """Supports the test suite by   init  ."""
         self.calls: list[dict[str, str]] = []
 
     def send(self, *, to: str, subject: str, body: str) -> None:
+        """Supports the test suite by send."""
         self.calls.append({"to": to, "subject": subject, "body": body})
 
 
@@ -163,6 +165,7 @@ def client() -> Iterator[TestClient]:
     main_module.engine = test_engine
 
     async def init_db() -> None:
+        """Supports the test suite by init db."""
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
@@ -212,6 +215,7 @@ def register_user(
         # relying on that convention continue to work.
         if role is None and username == "admin":
             async def _apply_seed_admin_role() -> None:
+                """Supports the test suite by  apply seed admin role."""
                 async with db_session.SessionLocal() as s:
                     await s.execute(text("UPDATE users SET role = :role WHERE id = :id"), {"role": "admin", "id": user_id})
                     await s.commit()
@@ -230,6 +234,7 @@ def register_user(
                 params = {"role": role, "id": user_id}
 
             async def _apply_role() -> None:
+                """Supports the test suite by  apply role."""
                 async with db_session.SessionLocal() as s:
                     await s.execute(sql, params)
                     await s.commit()
@@ -245,6 +250,7 @@ def register_user(
                 permissions), "id": user_id}
 
             async def _apply_permissions() -> None:
+                """Supports the test suite by  apply permissions."""
                 async with db_session.SessionLocal() as s:
                     await s.execute(perm_sql, perm_params)
                     await s.commit()

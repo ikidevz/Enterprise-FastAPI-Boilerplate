@@ -16,6 +16,7 @@ class _DummyRateLimiter:
     """
 
     def reset(self) -> None:
+        """Supports the test suite by reset."""
         return None
 
 
@@ -25,6 +26,7 @@ def _all_route_paths(app: FastAPI) -> set[str]:
 
 
 def test_app_factory_builds_a_working_app() -> None:
+    """Ensures app factory builds a working app."""
     app = create_app_from_factory()
 
     assert app is not None
@@ -49,19 +51,23 @@ def test_created_app_exposes_the_expected_health_and_api_routes() -> None:
 
 
 def test_bootstrap_registry_runs_startup_then_shutdown_hooks_in_order() -> None:
+    """Ensures bootstrap registry runs startup then shutdown hooks in order."""
     events: list[str] = []
     registry = BootstrapRegistry()
 
     async def startup(_: object) -> None:
+        """Supports the test suite by startup."""
         events.append("startup")
 
     async def shutdown(_: object) -> None:
+        """Supports the test suite by shutdown."""
         events.append("shutdown")
 
     registry.register_startup_hook(startup)
     registry.register_shutdown_hook(shutdown)
 
     async def run() -> None:
+        """Supports the test suite by run."""
         lifespan = build_lifespan(_DummyRateLimiter(), registry=registry)
         async with lifespan(object()):
             pass
@@ -72,7 +78,9 @@ def test_bootstrap_registry_runs_startup_then_shutdown_hooks_in_order() -> None:
 
 
 def test_infrastructure_registry_attaches_core_services_to_app_state() -> None:
+    """Ensures infrastructure registry attaches core services to app state."""
     async def run() -> None:
+        """Supports the test suite by run."""
         app = FastAPI()
         registry = build_infrastructure_registry(_DummyRateLimiter())
         lifespan = build_lifespan(_DummyRateLimiter(), registry=registry)

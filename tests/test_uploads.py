@@ -7,6 +7,7 @@ from conftest import auth_headers, login_user, register_user
 
 
 def test_uploading_a_file_stores_it_and_returns_metadata(client: TestClient) -> None:
+    """Ensures uploading a file stores it and returns metadata."""
     register_user(client, email="upload@example.com", username="upload")
     token = login_user(client, email="upload@example.com")
 
@@ -26,6 +27,7 @@ def test_uploading_a_file_stores_it_and_returns_metadata(client: TestClient) -> 
 
 
 def test_uploading_without_a_filename_is_rejected(client: TestClient) -> None:
+    """Ensures uploading without a filename is rejected."""
     register_user(client, email="upload-no-name@example.com",
                   username="upload-no-name")
     token = login_user(client, email="upload-no-name@example.com")
@@ -43,6 +45,7 @@ def test_uploading_without_a_filename_is_rejected(client: TestClient) -> None:
 
 
 def test_upload_rejects_a_path_traversal_filename(client: TestClient, tmp_path) -> None:
+    """Ensures upload rejects a path traversal filename."""
     register_user(client, email="upload-path@example.com",
                   username="upload-path")
     token = login_user(client, email="upload-path@example.com")
@@ -64,6 +67,7 @@ def test_upload_rejects_a_path_traversal_filename(client: TestClient, tmp_path) 
 
 
 def test_uploading_a_file_requires_authentication(client: TestClient) -> None:
+    """Ensures uploading a file requires authentication."""
     response = client.post(
         "/api/v1/uploads/",
         files={"file": ("should-need-auth.txt", b"data", "text/plain")},

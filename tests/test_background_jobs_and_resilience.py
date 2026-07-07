@@ -9,13 +9,16 @@ from backend.resilience.retry import CircuitBreaker, CircuitBreakerOpenError, re
 
 
 def test_background_job_manager_runs_an_enqueued_job() -> None:
+    """Ensures background job manager runs an enqueued job."""
     async def run_test() -> None:
+        """Supports the test suite by run test."""
         manager = BackgroundJobManager()
         await manager.start()
         try:
             completed = {"value": False}
 
             def job() -> None:
+                """Supports the test suite by job."""
                 completed["value"] = True
 
             manager.enqueue(job)
@@ -28,13 +31,16 @@ def test_background_job_manager_runs_an_enqueued_job() -> None:
 
 
 def test_background_job_manager_runs_an_async_job_too() -> None:
+    """Ensures background job manager runs an async job too."""
     async def run_test() -> None:
+        """Supports the test suite by run test."""
         manager = BackgroundJobManager()
         await manager.start()
         try:
             completed = {"value": False}
 
             async def async_job() -> None:
+                """Supports the test suite by async job."""
                 completed["value"] = True
 
             manager.enqueue(async_job)
@@ -47,10 +53,13 @@ def test_background_job_manager_runs_an_async_job_too() -> None:
 
 
 def test_retry_async_retries_on_failure_and_eventually_succeeds() -> None:
+    """Ensures retry async retries on failure and eventually succeeds."""
     async def run_test() -> None:
+        """Supports the test suite by run test."""
         attempts = {"count": 0}
 
         async def flaky() -> str:
+            """Supports the test suite by flaky."""
             attempts["count"] += 1
             if attempts["count"] < 3:
                 raise RuntimeError("temporary failure")
@@ -64,8 +73,11 @@ def test_retry_async_retries_on_failure_and_eventually_succeeds() -> None:
 
 
 def test_retry_async_gives_up_after_exhausting_retries() -> None:
+    """Ensures retry async gives up after exhausting retries."""
     async def run_test() -> None:
+        """Supports the test suite by run test."""
         async def always_fails() -> str:
+            """Supports the test suite by always fails."""
             raise RuntimeError("permanent failure")
 
         with pytest.raises(RuntimeError):
@@ -75,6 +87,7 @@ def test_retry_async_gives_up_after_exhausting_retries() -> None:
 
 
 def test_circuit_breaker_opens_after_the_failure_threshold_and_blocks_further_calls() -> None:
+    """Ensures circuit breaker opens after the failure threshold and blocks further calls."""
     breaker = CircuitBreaker(failure_threshold=2, reset_timeout=1.0)
 
     breaker.record_failure()
@@ -85,6 +98,7 @@ def test_circuit_breaker_opens_after_the_failure_threshold_and_blocks_further_ca
 
 
 def test_circuit_breaker_stays_closed_below_the_failure_threshold() -> None:
+    """Ensures circuit breaker stays closed below the failure threshold."""
     breaker = CircuitBreaker(failure_threshold=3, reset_timeout=1.0)
 
     breaker.record_failure()
@@ -105,6 +119,7 @@ def test_export_metrics_does_not_raise_with_no_endpoint_configured() -> None:
 
 
 def test_tracing_configuration_reads_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensures tracing configuration reads environment variables."""
     monkeypatch.setenv("ENABLE_TRACING", "true")
     monkeypatch.setenv("OTEL_MODE", "production")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")

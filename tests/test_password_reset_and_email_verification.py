@@ -108,6 +108,7 @@ def test_password_reset_email_contains_a_real_token_that_can_be_used_to_reset_th
 def test_password_reset_confirm_rejects_an_unknown_token(
     client: TestClient,
 ) -> None:
+    """Ensures password reset confirm rejects an unknown token."""
     response = client.post(
         "/api/v1/auth/password-reset/confirm",
         json={
@@ -122,6 +123,7 @@ def test_password_reset_confirm_rejects_an_unknown_token(
 def test_email_verification_request_and_confirm_marks_the_account_verified(
     client: TestClient,
 ) -> None:
+    """Ensures email verification request and confirm marks the account verified."""
     transport = CaptureTransport()
     original_transport = email_delivery_service.transport
     email_delivery_service.transport = transport
@@ -163,6 +165,7 @@ def test_email_verification_request_and_confirm_marks_the_account_verified(
 def test_email_verification_request_never_returns_the_token_or_leaks_account_existence(
     client: TestClient,
 ) -> None:
+    """Ensures email verification request never returns the token or leaks account existence."""
     register_user(
         client,
         email="should-not-leak@example.com",

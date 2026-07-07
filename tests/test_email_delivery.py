@@ -4,6 +4,7 @@ from backend.infrastructure.email.transport import EmailDeliveryService
 
 
 def test_password_reset_and_verification_emails_contain_the_right_tokens() -> None:
+    """Ensures password reset and verification emails contain the right tokens."""
     transport = CaptureTransport()
     service = EmailDeliveryService(transport=transport)
 
@@ -26,6 +27,7 @@ def test_console_backend_is_the_default() -> None:
 
 
 def test_smtp_backend_is_used_when_explicitly_configured(monkeypatch) -> None:
+    """Ensures smtp backend is used when explicitly configured."""
     from backend.infrastructure.email.transport import SMTPEmailTransport
     monkeypatch.setattr(settings, "email_backend", "smtp")
 

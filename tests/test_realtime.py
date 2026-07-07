@@ -16,6 +16,7 @@ def test_product_created_handler_echoes_the_event_back_to_the_sender() -> None:
     calls: dict[str, object] = {}
 
     async def fake_emit(event: str, data: dict, to: str | None = None) -> None:
+        """Supports the test suite by fake emit."""
         calls["event"] = event
         calls["data"] = data
         calls["to"] = to

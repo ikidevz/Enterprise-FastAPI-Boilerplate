@@ -37,6 +37,7 @@ def test_settings_resolve_secret_from_a_file_and_from_a_profile_env_file(
 
 
 def test_upload_backend_s3_requires_credentials(monkeypatch) -> None:
+    """Ensures upload backend s3 requires credentials."""
     monkeypatch.setenv("UPLOAD_BACKEND", "s3")
     monkeypatch.setenv("S3_BUCKET", "my-bucket")
     monkeypatch.delenv("S3_ACCESS_KEY_ID", raising=False)
@@ -50,6 +51,7 @@ def test_upload_backend_s3_requires_credentials(monkeypatch) -> None:
 def test_upload_backend_azure_requires_connection_string_and_container(
     monkeypatch,
 ) -> None:
+    """Ensures upload backend azure requires connection string and container."""
     monkeypatch.setenv("UPLOAD_BACKEND", "azure")
     monkeypatch.delenv("AZURE_STORAGE_CONNECTION_STRING", raising=False)
     monkeypatch.delenv("AZURE_STORAGE_CONTAINER", raising=False)
@@ -60,6 +62,7 @@ def test_upload_backend_azure_requires_connection_string_and_container(
 
 
 def test_cors_origins_can_also_be_supplied_as_a_json_array(monkeypatch) -> None:
+    """Ensures cors origins can also be supplied as a json array."""
     monkeypatch.setenv(
         "CORS_ORIGINS", '["http://json.test", "http://also-json.test"]')
 

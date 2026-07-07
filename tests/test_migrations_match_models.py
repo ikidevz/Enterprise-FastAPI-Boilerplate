@@ -5,6 +5,7 @@ from backend.database.base import Base
 
 
 def test_alembic_upgrade_head_runs_cleanly_against_a_throwaway_database(tmp_path) -> None:
+    """Ensures alembic upgrade head runs cleanly against a throwaway database."""
     db_path = tmp_path / "migration_check.db"
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "-x",
@@ -15,12 +16,14 @@ def test_alembic_upgrade_head_runs_cleanly_against_a_throwaway_database(tmp_path
 
 
 def test_migrated_schema_has_every_column_the_orm_model_declares() -> None:
+    """Ensures migrated schema has every column the orm model declares."""
     import asyncio
     from sqlalchemy import inspect
     from sqlalchemy.ext.asyncio import create_async_engine
     from backend.domain.users.model import User
 
     async def check() -> None:
+        """Supports the test suite by check."""
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         async with engine.connect() as conn:
             await conn.run_sync(Base.metadata.create_all)

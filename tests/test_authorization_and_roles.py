@@ -24,6 +24,7 @@ def _make_user(**overrides) -> User:
 
 
 def test_superuser_is_always_allowed_regardless_of_role_or_permissions() -> None:
+    """Ensures superuser is always allowed regardless of role or permissions."""
     policy = AuthorizationPolicy(required_roles=(
         "admin",), required_permissions=("read:admin",))
     superuser = _make_user(is_superuser=True, role="user", permissions=[])
@@ -32,6 +33,7 @@ def test_superuser_is_always_allowed_regardless_of_role_or_permissions() -> None
 
 
 def test_user_without_the_required_permission_is_denied() -> None:
+    """Ensures user without the required permission is denied."""
     policy = AuthorizationPolicy(required_permissions=("read:admin",))
     regular_user = _make_user(permissions=[])
 
@@ -39,6 +41,7 @@ def test_user_without_the_required_permission_is_denied() -> None:
 
 
 def test_user_with_the_required_permission_is_allowed() -> None:
+    """Ensures user with the required permission is allowed."""
     policy = AuthorizationPolicy(required_permissions=("read:admin",))
     permitted_user = _make_user(permissions=["read:admin"])
 
@@ -46,6 +49,7 @@ def test_user_with_the_required_permission_is_allowed() -> None:
 
 
 def test_role_check_is_based_on_the_role_field_not_the_username() -> None:
+    """Ensures role check is based on the role field not the username."""
     policy = AuthorizationPolicy(required_roles=("admin",))
 
     real_admin_with_an_unrelated_username = _make_user(
@@ -89,6 +93,7 @@ def test_admin_users_endpoint_is_reachable_by_the_seeded_style_admin_account(
 
 def test_permissions_endpoint_reflects_the_caller_role_and_permissions(client: TestClient) -> None:
     # Use the test helper which now applies role/permissions directly in DB
+    """Ensures permissions endpoint reflects the caller role and permissions."""
     register_user(
         client,
         email="governance@example.com",

@@ -5,6 +5,7 @@ from conftest import auth_headers, login_user, register_user
 
 
 def test_registration_creates_a_user_and_returns_its_public_profile(client: TestClient) -> None:
+    """Ensures registration creates a user and returns its public profile."""
     user = register_user(
         client, email="new-user@example.com", username="new-user")
 
@@ -26,6 +27,7 @@ def test_weak_passwords_are_rejected_at_the_schema_level(client: TestClient) -> 
 
 
 def test_duplicate_email_registration_is_rejected_cleanly(client: TestClient) -> None:
+    """Ensures duplicate email registration is rejected cleanly."""
     payload = {
         "email": "duplicate@example.com",
         "username": "duplicate-one",
@@ -43,6 +45,7 @@ def test_duplicate_email_registration_is_rejected_cleanly(client: TestClient) ->
 
 
 def test_duplicate_username_with_a_different_email_is_rejected_cleanly(client: TestClient) -> None:
+    """Ensures duplicate username with a different email is rejected cleanly."""
     register_user(client, email="first-owner@example.com",
                   username="shared-name")
 
@@ -59,6 +62,7 @@ def test_duplicate_username_with_a_different_email_is_rejected_cleanly(client: T
 
 
 def test_login_with_correct_credentials_returns_tokens(client: TestClient) -> None:
+    """Ensures login with correct credentials returns tokens."""
     register_user(client, email="login@example.com", username="login")
 
     response = client.post(
@@ -74,6 +78,7 @@ def test_login_with_correct_credentials_returns_tokens(client: TestClient) -> No
 
 
 def test_login_with_wrong_password_is_rejected(client: TestClient) -> None:
+    """Ensures login with wrong password is rejected."""
     register_user(client, email="wrongpass@example.com", username="wrongpass")
 
     response = client.post(
@@ -85,6 +90,7 @@ def test_login_with_wrong_password_is_rejected(client: TestClient) -> None:
 
 
 def test_login_with_unknown_email_is_rejected(client: TestClient) -> None:
+    """Ensures login with unknown email is rejected."""
     response = client.post(
         "/api/v1/auth/login",
         data={"username": "nobody-registered@example.com", "password": "whatever"},
@@ -94,6 +100,7 @@ def test_login_with_unknown_email_is_rejected(client: TestClient) -> None:
 
 
 def test_access_token_grants_access_to_the_current_user_profile(client: TestClient) -> None:
+    """Ensures access token grants access to the current user profile."""
     register_user(client, email="me-route@example.com", username="me-route")
     token = login_user(client, email="me-route@example.com")
 
@@ -104,6 +111,7 @@ def test_access_token_grants_access_to_the_current_user_profile(client: TestClie
 
 
 def test_access_token_for_deleted_user_is_rejected(client: TestClient) -> None:
+    """Ensures access token for deleted user is rejected."""
     import asyncio
 
     from sqlalchemy import delete
@@ -116,6 +124,7 @@ def test_access_token_for_deleted_user_is_rejected(client: TestClient) -> None:
     token = login_user(client, email="deleted-user@example.com")
 
     async def delete_user() -> None:
+        """Supports the test suite by delete user."""
         async with db_session.SessionLocal() as db:
             await db.execute(delete(User).where(User.email == "deleted-user@example.com"))
             await db.commit()
@@ -128,6 +137,7 @@ def test_access_token_for_deleted_user_is_rejected(client: TestClient) -> None:
 
 
 def test_account_locks_after_five_failed_login_attempts(client: TestClient) -> None:
+    """Ensures account locks after five failed login attempts."""
     register_user(client, email="lockout@example.com", username="lockout")
 
     for _ in range(5):
@@ -148,6 +158,7 @@ def test_account_locks_after_five_failed_login_attempts(client: TestClient) -> N
 
 
 def test_account_can_log_in_again_once_the_lockout_window_has_expired(client: TestClient) -> None:
+    """Ensures account can log in again once the lockout window has expired."""
     import asyncio
     from datetime import datetime, timedelta, timezone
 
@@ -165,6 +176,7 @@ def test_account_can_log_in_again_once_the_lockout_window_has_expired(client: Te
         )
 
     async def expire_the_lockout_window() -> None:
+        """Supports the test suite by expire the lockout window."""
         async with db_session.SessionLocal() as db:
             result = await db.execute(select(User).where(User.email == "recovers@example.com"))
             user = result.scalar_one()
@@ -184,6 +196,7 @@ def test_account_can_log_in_again_once_the_lockout_window_has_expired(client: Te
 
 
 def test_refresh_token_issues_a_new_access_and_refresh_token(client: TestClient) -> None:
+    """Ensures refresh token issues a new access and refresh token."""
     register_user(client, email="refresh@example.com", username="refresh")
     login_response = client.post(
         "/api/v1/auth/login",
@@ -219,6 +232,7 @@ def test_refresh_token_cannot_be_reused_after_rotation(client: TestClient) -> No
 
 
 def test_refresh_with_an_unknown_token_is_rejected(client: TestClient) -> None:
+    """Ensures refresh with an unknown token is rejected."""
     response = client.post("/api/v1/auth/refresh",
                            json={"refresh_token": "not-a-real-token"})
 
@@ -226,6 +240,7 @@ def test_refresh_with_an_unknown_token_is_rejected(client: TestClient) -> None:
 
 
 def test_logout_revokes_the_refresh_token(client: TestClient) -> None:
+    """Ensures logout revokes the refresh token."""
     register_user(client, email="logout@example.com", username="logout")
     login_response = client.post(
         "/api/v1/auth/login",

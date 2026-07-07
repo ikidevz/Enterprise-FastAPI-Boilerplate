@@ -4,12 +4,14 @@ from conftest import auth_headers, login_user, register_user
 
 
 def _auth_headers_for_user(client: TestClient, *, email: str, username: str, role: str = "user") -> dict[str, str]:
+    """Supports the test suite by  auth headers for user."""
     register_user(client, email=email, username=username, role=role)
     token = login_user(client, email=email)
     return auth_headers(token)
 
 
 def test_creating_a_product_returns_its_public_representation(client: TestClient) -> None:
+    """Ensures creating a product returns its public representation."""
     headers = _auth_headers_for_user(
         client,
         email="product-owner@example.com",
@@ -55,12 +57,14 @@ def test_product_catalog_can_be_listed_and_read_by_anyone(client: TestClient) ->
 
 
 def test_reading_a_nonexistent_product_returns_404(client: TestClient) -> None:
+    """Ensures reading a nonexistent product returns 404."""
     response = client.get("/api/v1/products/999999")
 
     assert response.status_code == 404
 
 
 def test_duplicate_product_name_is_rejected(client: TestClient) -> None:
+    """Ensures duplicate product name is rejected."""
     headers = _auth_headers_for_user(
         client,
         email="duplicate-product@example.com",
@@ -79,6 +83,7 @@ def test_duplicate_product_name_is_rejected(client: TestClient) -> None:
 
 
 def test_invalid_product_payload_is_rejected_with_422(client: TestClient) -> None:
+    """Ensures invalid product payload is rejected with 422."""
     headers = _auth_headers_for_user(
         client,
         email="invalid-product@example.com",
@@ -95,6 +100,7 @@ def test_invalid_product_payload_is_rejected_with_422(client: TestClient) -> Non
 
 
 def test_product_search_filters_by_name(client: TestClient) -> None:
+    """Ensures product search filters by name."""
     headers = _auth_headers_for_user(
         client,
         email="search-product@example.com",
@@ -126,6 +132,7 @@ def test_product_search_filters_by_name(client: TestClient) -> None:
 
 
 def test_product_listing_supports_pagination(client: TestClient) -> None:
+    """Ensures product listing supports pagination."""
     headers = _auth_headers_for_user(
         client,
         email="pagination-product@example.com",
@@ -152,6 +159,7 @@ def test_product_listing_supports_pagination(client: TestClient) -> None:
 
 
 def test_products_can_be_sorted_by_price_descending(client: TestClient) -> None:
+    """Ensures products can be sorted by price descending."""
     headers = _auth_headers_for_user(
         client,
         email="sort-product@example.com",
@@ -180,6 +188,7 @@ def test_products_can_be_sorted_by_price_descending(client: TestClient) -> None:
 
 
 def test_updating_and_deleting_a_product(client: TestClient) -> None:
+    """Ensures updating and deleting a product."""
     headers = _auth_headers_for_user(
         client,
         email="mutate-product@example.com",
@@ -209,6 +218,7 @@ def test_updating_and_deleting_a_product(client: TestClient) -> None:
 
 
 def test_creating_a_product_requires_authentication(client: TestClient) -> None:
+    """Ensures creating a product requires authentication."""
     response = client.post(
         "/api/v1/products/",
         json={"name": "Should Require Auth", "price": 1.0, "description": "x"},
@@ -218,6 +228,7 @@ def test_creating_a_product_requires_authentication(client: TestClient) -> None:
 
 
 def test_updating_a_product_requires_authentication(client: TestClient) -> None:
+    """Ensures updating a product requires authentication."""
     create_response = client.post(
         "/api/v1/products/",
         headers=_auth_headers_for_user(
@@ -237,6 +248,7 @@ def test_updating_a_product_requires_authentication(client: TestClient) -> None:
 
 
 def test_deleting_a_product_requires_authentication(client: TestClient) -> None:
+    """Ensures deleting a product requires authentication."""
     create_response = client.post(
         "/api/v1/products/",
         headers=_auth_headers_for_user(

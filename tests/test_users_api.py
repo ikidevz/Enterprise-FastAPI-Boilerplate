@@ -5,12 +5,14 @@ from conftest import auth_headers, login_user, register_user
 
 
 def test_get_own_profile_requires_authentication(client: TestClient) -> None:
+    """Ensures get own profile requires authentication."""
     response = client.get("/api/v1/auth/me")
 
     assert response.status_code == 401
 
 
 def test_get_own_profile_returns_the_logged_in_users_data(client: TestClient) -> None:
+    """Ensures get own profile returns the logged in users data."""
     register_user(client, email="profile@example.com", username="profile")
     token = login_user(client, email="profile@example.com")
 
@@ -54,6 +56,7 @@ def test_full_authenticated_crud_flow(client: TestClient) -> None:
 
 
 def test_updating_another_users_profile_without_permission_is_forbidden(client: TestClient) -> None:
+    """Ensures updating another users profile without permission is forbidden."""
     owner = register_user(client, email="owner@example.com", username="owner")
     register_user(client, email="other@example.com", username="other")
     other_users_token = login_user(client, email="other@example.com")
@@ -68,6 +71,7 @@ def test_updating_another_users_profile_without_permission_is_forbidden(client: 
 
 
 def test_reading_a_nonexistent_user_returns_404(client: TestClient) -> None:
+    """Ensures reading a nonexistent user returns 404."""
     register_user(client, email="someone@example.com", username="someone")
     token = login_user(client, email="someone@example.com")
 
@@ -77,6 +81,7 @@ def test_reading_a_nonexistent_user_returns_404(client: TestClient) -> None:
 
 
 def test_invalid_registration_payload_is_rejected_with_422(client: TestClient) -> None:
+    """Ensures invalid registration payload is rejected with 422."""
     response = client.post(
         "/api/v1/users/",
         json={"email": "not-an-email", "username": "", "password": "short"},
@@ -86,12 +91,14 @@ def test_invalid_registration_payload_is_rejected_with_422(client: TestClient) -
 
 
 def test_listing_all_users_requires_authentication(client: TestClient) -> None:
+    """Ensures listing all users requires authentication."""
     response = client.get("/api/v1/users/")
 
     assert response.status_code == 401
 
 
 def test_reading_a_specific_user_requires_authentication(client: TestClient) -> None:
+    """Ensures reading a specific user requires authentication."""
     created = register_user(
         client, email="target@example.com", username="target")
 
@@ -101,6 +108,7 @@ def test_reading_a_specific_user_requires_authentication(client: TestClient) -> 
 
 
 def test_deleting_a_user_requires_authentication(client: TestClient) -> None:
+    """Ensures deleting a user requires authentication."""
     created = register_user(
         client, email="deletable@example.com", username="deletable")
 
@@ -110,6 +118,7 @@ def test_deleting_a_user_requires_authentication(client: TestClient) -> None:
 
 
 def test_registration_cannot_self_assign_a_privileged_role(client: TestClient) -> None:
+    """Ensures registration cannot self assign a privileged role."""
     response = client.post(
         "/api/v1/users/",
         json={
