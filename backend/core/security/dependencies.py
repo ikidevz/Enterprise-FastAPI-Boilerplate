@@ -8,7 +8,7 @@ from backend.database.session import get_db
 from backend.domain.users.model import User
 from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
-from backend.common.token_store import TokenStore
+from backend.core.security.token_store import TokenStore
 
 security = HTTPBearer(auto_error=False)
 revocation_store = TokenStore(prefix="tier4:revocations")

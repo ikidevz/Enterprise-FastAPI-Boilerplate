@@ -10,19 +10,22 @@ from backend.app.bootstrap import (
 )
 from backend.app.socketio_app import app_socket
 from backend.infrastructure.runtime import build_infrastructure_registry
-from backend.common.exceptions import DomainHTTPException
-from backend.common.lifespan import build_lifespan
-from backend.common.rate_limit import shared_rate_limiter
+from backend.web.exceptions import DomainHTTPException
+from backend.app.lifespan import build_lifespan
 from backend.core.config import settings
 
 from sqlalchemy.exc import IntegrityError
 
-rate_limiter = shared_rate_limiter
-infrastructure_registry = build_infrastructure_registry(rate_limiter)
-lifespan = build_lifespan(rate_limiter, registry=infrastructure_registry)
 
+def create_app(rate_limiter=None) -> FastAPI:
+    if rate_limiter is None:
+        from backend.resilience.rate_limit import shared_rate_limiter
 
-def create_app() -> FastAPI:
+        rate_limiter = shared_rate_limiter
+
+    infrastructure_registry = build_infrastructure_registry(rate_limiter)
+    lifespan = build_lifespan(rate_limiter, registry=infrastructure_registry)
+
     app = FastAPI(
         title=settings.project_name,
         version="0.1.0",

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.app.api.v1.router import router as api_router
-from backend.common.health_checks import router as health_router
+from backend.observability.health_checks import router as health_router
 from backend.core.config import settings
 
 

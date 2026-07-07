@@ -4,11 +4,11 @@ from typing import Any
 from time import time
 
 from backend.common.exporters import export_metrics
-from backend.common.observability import metrics_collector
+from backend.observability.metrics import metrics_collector
 from backend.common.background_jobs import background_job_manager
 from backend.common.bootstrap import BootstrapRegistry
-from backend.common.email import email_delivery_service
-from backend.common.log import logger
+from backend.infrastructure.email.transport import email_delivery_service
+from backend.observability.logging import logger
 from backend.database import session as db_session
 from backend.infrastructure.upload_storage import (
     AzureBlobUploadStorage,

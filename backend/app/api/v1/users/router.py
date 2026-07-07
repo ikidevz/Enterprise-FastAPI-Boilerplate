@@ -3,11 +3,11 @@ from fastapi import APIRouter, Depends, Request, status
 from backend.domain.users.model import User
 from backend.domain.users.service import UserService
 from backend.application.users import RegisterUserUseCase, UpdateUserUseCase
-from backend.common.audit import audit_logger
-from backend.common.dependencies import get_current_active_user, get_user_service
-from backend.common.exceptions import DomainError, NotFoundError, to_http_exception, ForbiddenError
-from backend.common.rbac import require_role
-from backend.common.schema import UserCreate, UserOut, UserUpdate
+from backend.observability.audit import audit_logger
+from backend.core.security.dependencies import get_current_active_user, get_user_service
+from backend.web.exceptions import DomainError, NotFoundError, to_http_exception, ForbiddenError
+from backend.core.security.rbac import require_role
+from backend.contracts.users_contracts import UserCreate, UserOut, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
 

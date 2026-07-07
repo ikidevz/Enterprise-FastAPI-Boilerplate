@@ -29,9 +29,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import backend.main as main_module
-from backend.common.audit import audit_logger
+from backend.observability.audit import audit_logger
 from backend.common.background_jobs import background_job_manager
 from backend.common.rate_limit import shared_rate_limiter
+from sqlalchemy import text
 from backend.core.config import settings
 from backend.database import session as db_session
 from backend.database.base import Base
@@ -103,7 +104,7 @@ def _reset_token_stores() -> None:
     for the next test.
     """
     from backend.application.auth import use_cases as auth_use_cases
-    from backend.common.dependencies import revocation_store
+    from backend.core.security.dependencies import revocation_store
 
     for store in (
         auth_use_cases.token_store,
@@ -188,18 +189,68 @@ def register_user(
     201, so every test that calls this can assume the user really exists
     afterward without re-checking the status code itself.
     """
+    # Public registration endpoint no longer accepts `role`/`permissions`.
+    # Create the user with the minimal allowed payload and then, if the
+    # test requested a privileged role or permissions, apply them
+    # directly in the test database so existing tests continue to work.
     payload = {"email": email, "username": username, "password": password}
-    if role is not None:
-        payload["role"] = role
-    if permissions is not None:
-        payload["permissions"] = permissions
 
     response = client.post(
         "/api/v1/users/",
         json=payload,
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    body = response.json()
+    user_id = body.get("id")
+    # If the test asked for a privileged role or permissions, set them
+    # directly in the test database so tests that relied on the old
+    # behavior continue to work.
+    if user_id is not None:
+        # Keep legacy test expectations: if the test created a user with
+        # username "admin" but didn't pass an explicit role, treat that
+        # as the seeded-style admin and mark the role accordingly so tests
+        # relying on that convention continue to work.
+        if role is None and username == "admin":
+            async def _apply_seed_admin_role() -> None:
+                async with db_session.SessionLocal() as s:
+                    await s.execute(text("UPDATE users SET role = :role WHERE id = :id"), {"role": "admin", "id": user_id})
+                    await s.commit()
+
+            asyncio.run(_apply_seed_admin_role())
+        if role is not None and role != "user":
+            # Use the async session to update the freshly-created user so
+            # the DB work runs in the test process' event loop rather than
+            # in the TestClient server thread (avoids greenlet issues).
+            if role == "admin":
+                sql = text(
+                    "UPDATE users SET role = :role, is_superuser = :is_superuser WHERE id = :id")
+                params = {"role": role, "is_superuser": True, "id": user_id}
+            else:
+                sql = text("UPDATE users SET role = :role WHERE id = :id")
+                params = {"role": role, "id": user_id}
+
+            async def _apply_role() -> None:
+                async with db_session.SessionLocal() as s:
+                    await s.execute(sql, params)
+                    await s.commit()
+
+            asyncio.run(_apply_role())
+        if permissions is not None:
+            # Store permissions JSON directly on the user row using async session.
+            perm_sql = text(
+                "UPDATE users SET permissions = :permissions WHERE id = :id")
+            import json
+
+            perm_params = {"permissions": json.dumps(
+                permissions), "id": user_id}
+
+            async def _apply_permissions() -> None:
+                async with db_session.SessionLocal() as s:
+                    await s.execute(perm_sql, perm_params)
+                    await s.commit()
+
+            asyncio.run(_apply_permissions())
+    return body
 
 
 def login_user(client: TestClient, *, email: str, password: str = "StrongPass123!") -> str:

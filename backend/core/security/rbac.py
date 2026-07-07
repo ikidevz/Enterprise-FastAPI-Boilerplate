@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, status
 
-from backend.common.dependencies import get_current_active_user
+from backend.core.security.dependencies import get_current_active_user
 from backend.domain.users.model import User
 
 

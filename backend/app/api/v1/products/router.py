@@ -5,14 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.products import CreateProductUseCase, UpdateProductUseCase
 from backend.database.session import get_db
-from backend.common.audit import audit_logger
-from backend.common.dependencies import get_current_active_user
-from backend.common.exceptions import DomainError, NotFoundError, to_http_exception
+from backend.observability.audit import audit_logger
+from backend.core.security.dependencies import get_current_active_user
+from backend.web.exceptions import DomainError, NotFoundError, to_http_exception
 from backend.domain.products.repository import ProductRepository
 from backend.domain.products.service import ProductService
-from backend.common.rbac import require_role
-from backend.common.schema import ProductCreate, ProductOut, ProductUpdate
-from backend.common.opentelemetry import trace_span
+from backend.core.security.rbac import require_role
+from backend.contracts.products_contracts import ProductCreate, ProductOut, ProductUpdate
+from backend.observability.tracing import trace_span
 from backend.domain.users.model import User
 from backend.app.socketio_app import sio
 

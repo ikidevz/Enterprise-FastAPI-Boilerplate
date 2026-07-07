@@ -169,7 +169,7 @@ Everything that talks to the outside world, or wires the app together at startup
 | Config/settings                                                   | `backend/core/config.py`                                                                      |
 | Shared exception hierarchy + HTTP translation                     | `backend/common/exceptions.py`                                                                |
 | Runtime/operational snapshot facade                               | `backend/platform/runtime.py` (`PlatformRuntime`, backs the `/runtime` route)                 |
-| API-facing "contract" mirror types                                | `backend/contracts/`                                                                          |
+| API-facing "contract" mirror types                                | `backend/contracts/` (`backend/contracts/__init__.py` is the public import gateway)           |
 
 ---
 

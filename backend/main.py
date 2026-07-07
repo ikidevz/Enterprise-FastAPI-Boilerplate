@@ -5,13 +5,14 @@ from fastapi import Request, WebSocket
 from fastapi.responses import JSONResponse
 
 from backend.app.factory import create_app
-from backend.common.audit import audit_logger
-from backend.common.request_size import RequestSizeLimitMiddleware
-from backend.common.log import bind_request_context, logger, reset_request_context
-from backend.common.observability import get_metrics_snapshot, record_request_metrics
-from backend.common.opentelemetry import trace_span
-from backend.common.rate_limit import RedisRateLimiter, shared_rate_limiter
-from backend.contracts.api_contracts import HealthResponse, MetricsResponse
+from backend.observability.audit import audit_logger
+from backend.web.request_size_middleware import RequestSizeLimitMiddleware
+from backend.observability.logging import bind_request_context, logger, reset_request_context
+from backend.observability.metrics import get_metrics_snapshot, record_request_metrics
+from backend.observability.tracing import trace_span
+from backend.core.security.rbac import require_role
+from backend.resilience.rate_limit import RedisRateLimiter, shared_rate_limiter
+from backend.contracts.health_contracts import HealthResponse, MetricsResponse
 from backend.core.config import settings
 from backend.infrastructure.runtime import PlatformRuntime
 from backend.utils.redis_client import redis_client
@@ -22,7 +23,7 @@ rate_limiter = (
     if settings.environment != "dev"
     else shared_rate_limiter
 )
-app = create_app()
+app = create_app(rate_limiter)
 
 app.add_middleware(
     RequestSizeLimitMiddleware,
@@ -104,7 +105,7 @@ async def add_request_context(request: Request, call_next):
 
         if (
             settings.enable_rate_limiting
-            and not rate_limiter.allow_request(
+            and not await rate_limiter.allow_request(
                 client_ip,
                 request.url.path,
                 limit=settings.rate_limit_requests_per_minute,

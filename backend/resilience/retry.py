@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
-from backend.common.log import logger
+from backend.observability.logging import logger
 
 T = TypeVar("T")
 

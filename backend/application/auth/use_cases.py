@@ -3,11 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from backend.common.background_jobs import background_job_manager
-from backend.common.email import email_delivery_service
-from backend.common.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
-from backend.common.log import logger
+from backend.infrastructure.email.transport import email_delivery_service
+from backend.web.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
+from backend.observability.logging import logger
 from backend.common.schema import EmailVerificationConfirm, EmailVerificationRequest, PasswordResetConfirm, PasswordResetRequest
-from backend.common.token_store import TokenStore
+from backend.core.security.token_store import TokenStore
 from backend.core.config import settings
 from backend.domain.users.service import UserService
 
@@ -50,11 +50,16 @@ class RefreshTokenUseCase:
         self.repository = repository
 
     async def execute(self, *, refresh_token: str) -> dict[str, object]:
-        stored_user_id = await token_store.get(refresh_token)
-        if not stored_user_id:
+        stored_value = await token_store.get(refresh_token)
+        if not stored_value:
             raise UnauthorizedError("Invalid refresh token")
 
-        user = await self.repository.get_by_id(int(stored_user_id))
+        # Detect replayed/used markers placed by TokenStore.rotate_refresh_token
+        # (values like "used:123") and treat them as invalid.
+        if isinstance(stored_value, str) and stored_value.startswith(token_store.USED_TOKEN_PREFIX):
+            raise UnauthorizedError("Invalid refresh token")
+
+        user = await self.repository.get_by_id(int(stored_value))
         if not user:
             raise NotFoundError("user")
 

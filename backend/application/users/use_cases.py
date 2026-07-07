@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from backend.application.ports import NotificationPort
-from backend.common.exceptions import DuplicateResourceError, ForbiddenError, NotFoundError
-from backend.common.log import logger
+from backend.web.exceptions import DuplicateResourceError, ForbiddenError, NotFoundError
+from backend.observability.logging import logger
 from backend.common.schema import UserCreate, UserOut, UserUpdate
 from backend.domain.events import DomainEvent
 from backend.domain.users.service import UserService

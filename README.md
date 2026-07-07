@@ -275,7 +275,7 @@ A second domain module included to show the same layered pattern applied twice:
 - [backend/infrastructure](backend/infrastructure) — startup/shutdown wiring that attaches logging, Redis, background jobs, and email onto `app.state`
 - [backend/integrations](backend/integrations) — adapters bridging the domain to external systems (currently: email)
 - [backend/platform](backend/platform) — the `PlatformRuntime` facade backing `/runtime`
-- [backend/contracts](backend/contracts) — API-facing mirror types for a few response shapes
+- [backend/contracts](backend/contracts) — API-facing contract definitions exposed through `backend/contracts/__init__.py`
 - [backend/utils](backend/utils) — the Redis client and small runtime helpers
 - [backend/services](backend/services) — a small runtime-service container (see note below)
 - [backend/scripts](backend/scripts) — local dev seed-data script

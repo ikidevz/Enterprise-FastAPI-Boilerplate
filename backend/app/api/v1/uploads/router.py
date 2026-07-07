@@ -1,10 +1,11 @@
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 
-from backend.common.dependencies import get_current_active_user
-from backend.common.opentelemetry import trace_span
+from backend.core.security.dependencies import get_current_active_user
+from backend.observability.tracing import trace_span
 from backend.domain.users.model import User
 from backend.infrastructure.upload_storage import UploadStorage
+from backend.contracts.uploads_contracts import UploadResponse
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -23,12 +24,12 @@ def _validate_filename(original_filename: str) -> str:
     return safe_name
 
 
-@router.post("/", response_model=dict[str, str], status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
     request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
-) -> dict[str, str]:
+) -> UploadResponse:
     original_name = _validate_filename(file.filename)
     contents = await file.read()
 

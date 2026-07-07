@@ -11,18 +11,20 @@ from backend.application.auth import (
     RequestPasswordResetUseCase,
 )
 from backend.core.config import settings
-from backend.common.audit import audit_logger
-from backend.common.dependencies import get_current_active_user, security, revocation_store, get_current_active_user
-from backend.common.exceptions import DomainError, UnauthorizedError, to_http_exception
-from backend.common.schema import (
+from backend.observability.audit import audit_logger
+from backend.core.security.dependencies import get_current_active_user, security, revocation_store
+from backend.web.exceptions import DomainError, UnauthorizedError, to_http_exception
+from backend.contracts.auth_contracts import (
+    DetailResponse,
     EmailVerificationConfirm,
     EmailVerificationRequest,
     PasswordResetConfirm,
     PasswordResetRequest,
-    UserOut,
-    RefreshTokenRequest
+    RefreshTokenRequest,
+    TokenResponse,
 )
-from backend.common.opentelemetry import trace_span
+from backend.contracts.users_contracts import UserOut
+from backend.observability.tracing import trace_span
 from backend.database.session import get_db
 from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
@@ -34,12 +36,12 @@ from jose import jwt as jose_jwt
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", summary="Sign in", response_description="Access and refresh tokens")
+@router.post("/login", summary="Sign in", response_description="Access and refresh tokens", response_model=TokenResponse)
 async def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
-):
+) -> TokenResponse:
     with trace_span("auth.login"):
         try:
             repository = UserRepository(db)
@@ -70,12 +72,12 @@ async def login(
             raise to_http_exception(exc) from exc
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
     request: Request,
     payload: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> TokenResponse:
     if not payload.refresh_token:
         raise to_http_exception(UnauthorizedError("Invalid refresh token"))
     try:
@@ -106,13 +108,13 @@ async def refresh_token(
         raise to_http_exception(exc) from exc
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=DetailResponse)
 async def logout(
     request: Request,
     payload: RefreshTokenRequest,
     current_user: User = Depends(get_current_active_user),
     credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> dict[str, str]:
+) -> DetailResponse:
     from backend.application.auth import token_store
     await token_store.revoke(payload.refresh_token)
     access_payload = jose_jwt.decode(
@@ -127,14 +129,14 @@ async def logout(
 
 
 @router.post("/email-verification/request", summary="Request email verification")
-async def request_email_verification(payload: EmailVerificationRequest, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def request_email_verification(payload: EmailVerificationRequest, db: AsyncSession = Depends(get_db)) -> DetailResponse:
     repository = UserRepository(db)
     use_case = RequestEmailVerificationUseCase(repository)
     return await use_case.execute(payload=payload)
 
 
 @router.post("/email-verification/confirm", summary="Confirm email verification")
-async def confirm_email_verification(payload: EmailVerificationConfirm, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def confirm_email_verification(payload: EmailVerificationConfirm, db: AsyncSession = Depends(get_db)) -> DetailResponse:
     repository = UserRepository(db)
     try:
         use_case = ConfirmEmailVerificationUseCase(repository, db)
@@ -144,14 +146,14 @@ async def confirm_email_verification(payload: EmailVerificationConfirm, db: Asyn
 
 
 @router.post("/password-reset/request", summary="Request password reset")
-async def request_password_reset(payload: PasswordResetRequest, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def request_password_reset(payload: PasswordResetRequest, db: AsyncSession = Depends(get_db)) -> DetailResponse:
     repository = UserRepository(db)
     use_case = RequestPasswordResetUseCase(repository)
     return await use_case.execute(payload=payload)
 
 
 @router.post("/password-reset/confirm")
-async def confirm_password_reset(payload: PasswordResetConfirm, db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+async def confirm_password_reset(payload: PasswordResetConfirm, db: AsyncSession = Depends(get_db)) -> DetailResponse:
     repository = UserRepository(db)
     try:
         use_case = ConfirmPasswordResetUseCase(repository, db)

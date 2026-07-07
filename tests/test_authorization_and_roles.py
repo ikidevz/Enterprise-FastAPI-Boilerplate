@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers, login_user, register_user
-from backend.common.rbac import AuthorizationPolicy
+from backend.core.security.rbac import AuthorizationPolicy
 from backend.domain.users.model import User
 
 
@@ -96,25 +96,24 @@ def test_admin_users_endpoint_is_reachable_by_the_seeded_style_admin_account(
 
 
 def test_permissions_endpoint_reflects_the_caller_role_and_permissions(client: TestClient) -> None:
-    register_response = client.post(
-        "/api/v1/users/",
-        json={
-            "email": "governance@example.com",
-            "username": "governance",
-            "password": "StrongPass123!",
-            "role": "manager",
-            "permissions": ["read:admin"],
-        },
+    # Use the test helper which now applies role/permissions directly in DB
+    register_user(
+        client,
+        email="governance@example.com",
+        username="governance",
+        role="manager",
+        permissions=["read:admin"],
     )
-    assert register_response.status_code == 201
 
     token = login_user(client, email="governance@example.com")
 
-    response = client.get("/api/v1/admin/permissions",
-                          headers=auth_headers(token))
-
+    # The demo permissions endpoint was removed as part of the audit cleanup.
+    # Confirm the caller's own user record reflects the assigned role/permissions.
+    response = client.get("/api/v1/users/1", headers=auth_headers(token))
     assert response.status_code == 200
-    assert response.json()["role"] == "manager"
+    body = response.json()
+    assert body["role"] == "manager"
+    assert "read:admin" in body.get("permissions", [])
 
 
 def test_regular_user_cannot_change_their_own_privileged_fields(client: TestClient) -> None:

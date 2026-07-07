@@ -16,9 +16,9 @@ import asyncio
 from fastapi import FastAPI
 
 from backend.app.factory import create_app as create_app_from_factory
-from backend.app.infrastructure import build_infrastructure_registry
+from backend.infrastructure.runtime import build_infrastructure_registry
 from backend.common.bootstrap import BootstrapRegistry
-from backend.common.lifespan import build_lifespan
+from backend.app.lifespan import build_lifespan
 from backend.core.config import settings
 from backend.infrastructure.upload_storage import LocalUploadStorage
 

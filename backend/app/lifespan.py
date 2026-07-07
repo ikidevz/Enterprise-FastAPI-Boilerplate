@@ -7,7 +7,7 @@ from backend.core.config import settings
 from backend.common.background_jobs import background_job_manager
 from backend.common.bootstrap import BootstrapRegistry
 from backend.common.exporters import export_metrics
-from backend.common.log import logger
+from backend.observability.logging import logger
 from backend.database import session as db_session
 from backend.database.base import Base
 

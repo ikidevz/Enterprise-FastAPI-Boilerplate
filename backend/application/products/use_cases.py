@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.common.exceptions import DuplicateResourceError, NotFoundError
+from backend.web.exceptions import DuplicateResourceError, NotFoundError
 from backend.common.schema import ProductCreate, ProductOut, ProductUpdate
 from backend.domain.products.service import ProductService
 

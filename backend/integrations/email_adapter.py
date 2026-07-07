@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.common.email import email_delivery_service
+from backend.infrastructure.email.transport import email_delivery_service
 
 
 class EmailIntegrationAdapter:

@@ -51,13 +51,6 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
         return hmac.compare_digest(derived.hex(), expected)
 
     async def create(self, obj_in: UserCreate) -> User:
-        role = obj_in.role or (
-            "admin" if obj_in.username.lower() == "admin" else "user")
-        permissions = list(obj_in.permissions or [])
-        if role == "admin" and permissions:
-            role = "user"
-            permissions = []
-
         user = User(
             email=obj_in.email,
             username=obj_in.username,
@@ -65,8 +58,8 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
             is_active=True,
             is_verified=False,
             is_superuser=False,
-            role=role,
-            permissions=permissions,
+            role="user",
+            permissions=[],
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )

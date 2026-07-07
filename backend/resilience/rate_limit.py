@@ -6,8 +6,6 @@ from backend.observability.logging import logger
 
 
 class RateLimiter:
-    """In-memory limiter used only for local development."""
-
     def __init__(self) -> None:
         self._requests: dict[tuple[str, str], list[float]] = defaultdict(list)
         self._lock = Lock()

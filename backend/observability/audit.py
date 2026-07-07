@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import Request
 
 from backend.domain.users.model import User
-from backend.common.log import get_request_id
+from backend.observability.logging import get_request_id
 
 
 class AuditLogger:

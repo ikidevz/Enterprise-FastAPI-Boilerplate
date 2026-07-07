@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.domain.users.model import User
 from backend.domain.users.service import UserService
-from backend.common.audit import audit_logger
-from backend.common.dependencies import get_user_service
-from backend.common.exceptions import to_http_exception, NotFoundError
-from backend.common.rbac import require_role
-from backend.common.schema import UserOut, AdminUserRoleUpdate
+from backend.observability.audit import audit_logger
+from backend.core.security.dependencies import get_user_service
+from backend.web.exceptions import to_http_exception, NotFoundError
+from backend.core.security.rbac import require_role
+from backend.contracts.users_contracts import UserOut, AdminUserRoleUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

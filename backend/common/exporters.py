@@ -5,8 +5,8 @@ import httpx
 import os
 from typing import Any
 
-from backend.common.observability import get_metrics_snapshot
-from backend.common.log import logger
+from backend.observability.metrics import get_metrics_snapshot
+from backend.observability.logging import logger
 
 _background_tasks: set[asyncio.Task] = set()
 

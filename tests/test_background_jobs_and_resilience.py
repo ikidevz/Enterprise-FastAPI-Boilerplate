@@ -23,7 +23,7 @@ import pytest
 from backend.common.background_jobs import BackgroundJobManager
 from backend.common.exporters import export_metrics
 from backend.common.opentelemetry import trace_span
-from backend.common.resilience import CircuitBreaker, CircuitBreakerOpenError, retry_async
+from backend.resilience.retry import CircuitBreaker, CircuitBreakerOpenError, retry_async
 
 
 def test_background_job_manager_runs_an_enqueued_job() -> None:
