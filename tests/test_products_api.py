@@ -1,12 +1,3 @@
-"""Product CRUD, search, sort, and the duplicate-name guard.
-
-Product write endpoints currently have no authentication requirement at
-all (IMPROVEMENT_SUGGESTIONS_MERGED.md section 1.6). Unlike the user
-endpoints, this might be an intentional "public product catalog" design
-for reads (list/get) - but create/update/delete being open too is very
-unlikely to be intentional, so those three get xfail regression tests
-below, same pattern as test_users_api.py.
-"""
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers, login_user, register_user

@@ -1,22 +1,4 @@
-"""Background job queue, circuit breaker, retry helper, and tracing/metrics primitives.
-
-Note on async tests in this file: the original suite had one test marked
-`@pytest.mark.asyncio`, but `pytest-asyncio` was never actually added to
-this project's dependencies (see IMPROVEMENT_SUGGESTIONS_MERGED.md section
-1.12) - so that test could never run at all. Rather than adding a new
-dependency, every async test below uses the same `asyncio.run(...)`
-pattern the rest of this suite already uses elsewhere. No extra plugin
-needed.
-
-Also see IMPROVEMENT_SUGGESTIONS_MERGED.md section 2.8: CircuitBreaker and
-retry_async are fully implemented and tested (right here!) but aren't
-actually used to protect any real outbound call in the app today (not the
-DB session, not Redis, not the SMTP transport). These tests confirm the
-primitives themselves work correctly - they don't mean the app is
-protected by them, because nothing in the app calls them yet.
-"""
 import asyncio
-import importlib
 
 import pytest
 
@@ -108,7 +90,7 @@ def test_circuit_breaker_stays_closed_below_the_failure_threshold() -> None:
     breaker.record_failure()
     breaker.record_failure()
 
-    breaker.before_call()  # should not raise - still under the threshold
+    breaker.before_call()
 
 
 def test_trace_span_context_manager_does_not_raise() -> None:
@@ -127,18 +109,13 @@ def test_tracing_configuration_reads_environment_variables(monkeypatch: pytest.M
     monkeypatch.setenv("OTEL_MODE", "production")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
 
-    from backend.common import opentelemetry as opentelemetry_module
+    from backend.observability.tracing import get_tracing_configuration
 
-    importlib.reload(opentelemetry_module)
     try:
-        config = opentelemetry_module.get_tracing_configuration()
+        config = get_tracing_configuration()
 
         assert config["enabled"] is True
         assert config["mode"] == "production"
         assert config["endpoint"] == "http://collector:4318"
     finally:
-        # Reloading with the real environment restored, so later tests in the
-        # suite get the module back in its normal state rather than one
-        # pinned to this test's monkeypatched env vars.
         monkeypatch.undo()
-        importlib.reload(opentelemetry_module)

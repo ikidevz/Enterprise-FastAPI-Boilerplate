@@ -1,14 +1,3 @@
-"""User CRUD endpoints: create, read, list, update, delete.
-
-Several of the xfail tests below document endpoints that currently have
-*no* authentication requirement at all - see
-IMPROVEMENT_SUGGESTIONS_MERGED.md section 1.3. Each xfail test asserts the
-status code the endpoint *should* return to an anonymous caller (401), and
-is written so it will flip to a hard failure (not silently pass) the
-moment someone adds the missing `Depends(get_current_active_user)` -
-forcing a deliberate removal of the marker instead of the fix going
-unnoticed.
-"""
 import pytest
 from fastapi.testclient import TestClient
 

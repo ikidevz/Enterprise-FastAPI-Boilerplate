@@ -1,10 +1,5 @@
-"""Email transport selection and message formatting.
-
-This doesn't send any real email - CaptureTransport (see conftest.py)
-just records what would have been sent so we can check the content.
-"""
 from conftest import CaptureTransport
-from backend.common import email as email_module
+from backend.core.config import settings
 from backend.infrastructure.email.transport import EmailDeliveryService
 
 
@@ -31,8 +26,9 @@ def test_console_backend_is_the_default() -> None:
 
 
 def test_smtp_backend_is_used_when_explicitly_configured(monkeypatch) -> None:
-    monkeypatch.setattr(email_module.settings, "email_backend", "smtp")
+    from backend.infrastructure.email.transport import SMTPEmailTransport
+    monkeypatch.setattr(settings, "email_backend", "smtp")
 
     service = EmailDeliveryService()
 
-    assert isinstance(service.transport, email_module.SMTPEmailTransport)
+    assert isinstance(service.transport, SMTPEmailTransport)

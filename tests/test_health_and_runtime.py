@@ -1,9 +1,3 @@
-"""Health, readiness, metrics, runtime, and "is every response well-formed" checks.
-
-These are the endpoints an ops team or a load balancer would actually poll,
-plus the small pieces of middleware that attach to *every* response
-(security headers, request/trace IDs). Nothing here needs a logged-in user.
-"""
 from fastapi.testclient import TestClient
 
 from backend.infrastructure.runtime import PlatformRuntime

@@ -1,21 +1,3 @@
-"""Registration, login, account lockout, and refresh/logout token handling.
-
-If you're trying to understand the auth system, this is the file to read
-first: it walks through the whole lifecycle a user goes through - sign up,
-log in, get locked out after too many bad attempts, refresh a token,
-log out - in the order that actually happens.
-
-A couple of tests below are marked `xfail(strict=True)`. That's not a typo
-and it's not "this test is broken" - it means: this documents a real,
-currently-open bug in the application code (not in the test). The test
-asserts what *should* happen; today it fails, on purpose, and pytest
-reports it as an expected failure so the overall suite still shows green.
-The day someone fixes the underlying bug, this exact test will start
-passing - and because it's `strict=True`, pytest will treat that
-unexpected pass as a hard failure, forcing whoever fixed it to notice and
-delete the xfail marker. See IMPROVEMENT_SUGGESTIONS_MERGED.md for the
-full write-up (source code, root cause, suggested fix) behind each one.
-"""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -252,7 +234,7 @@ def test_logout_revokes_the_refresh_token(client: TestClient) -> None:
     access_token = login_response.json()["access_token"]
 
     logout_response = client.post(
-        "/api/v1/auth/logout", 
+        "/api/v1/auth/logout",
         headers={"Authorization": f"Bearer {access_token}"},
         json={"refresh_token": refresh_token})
     assert logout_response.status_code == 200
@@ -260,4 +242,3 @@ def test_logout_revokes_the_refresh_token(client: TestClient) -> None:
     reuse_attempt = client.post(
         "/api/v1/auth/refresh", json={"refresh_token": refresh_token})
     assert reuse_attempt.status_code == 401
-

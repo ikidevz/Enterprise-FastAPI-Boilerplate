@@ -1,4 +1,3 @@
-"""Settings loading: environment profiles, secret-file resolution, list parsing."""
 from pathlib import Path
 
 import pytest

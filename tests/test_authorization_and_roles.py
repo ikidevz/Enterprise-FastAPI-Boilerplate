@@ -1,11 +1,3 @@
-"""Role and permission checks: the AuthorizationPolicy/PermissionPolicy unit tests,
-plus the admin-only HTTP endpoints that use them.
-
-The most important test in this file is the xfail one near the bottom -
-it's the regression test for the single highest-severity bug found in this
-codebase (see IMPROVEMENT_SUGGESTIONS_MERGED.md section 1.1). Read the
-comment above it even if you skip everything else in this file.
-"""
 import pytest
 from fastapi.testclient import TestClient
 

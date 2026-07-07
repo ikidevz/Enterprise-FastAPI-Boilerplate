@@ -1,16 +1,3 @@
-"""App factory, lifespan startup/shutdown hooks, and the infrastructure registry
-that wires logging/Redis/background-jobs/email onto app.state.
-
-Note on checking "does this route exist": the older version of this file
-used `{route.path for route in app.routes}`, which broke against a newer
-FastAPI/Starlette release that wraps included routers in an internal
-object with no `.path` attribute (see
-IMPROVEMENT_SUGGESTIONS_MERGED.md section 1.12). Reading `app.openapi()`
-instead is the version-tolerant way to check "does this route exist" -
-it's FastAPI's own public, documented interface for describing its routes,
-rather than reaching into routing internals that are free to change
-between versions.
-"""
 import asyncio
 
 from fastapi import FastAPI

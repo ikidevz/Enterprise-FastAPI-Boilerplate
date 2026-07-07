@@ -1,11 +1,3 @@
-"""File upload endpoint.
-
-Two real problems documented here as xfail tests (both in
-IMPROVEMENT_SUGGESTIONS_MERGED.md section 1.4): the endpoint has no
-authentication, and it writes to disk using the client-supplied filename
-directly, with no sanitization - a path-traversal filename can write
-outside the intended upload directory.
-"""
 from pathlib import Path
 
 from fastapi.testclient import TestClient

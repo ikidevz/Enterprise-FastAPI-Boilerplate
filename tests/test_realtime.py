@@ -1,9 +1,3 @@
-"""Socket.IO real-time behavior.
-
-The WebSocket connectivity check (/ws/health) lives in
-test_health_and_runtime.py since it's more of a health-check than a
-"real-time feature" test. This file is about the Socket.IO server itself.
-"""
 import asyncio
 import inspect
 
@@ -54,4 +48,3 @@ def test_socket_io_connect_handler_exists() -> None:
     source = inspect.getsource(socketio_app)
     assert "@sio.event" in source or "def connect" in source, \
         "Socket.IO server should have a connect handler"
-
