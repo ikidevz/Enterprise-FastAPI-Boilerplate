@@ -57,6 +57,17 @@ class AuditLogger:
             else actor
         )
 
+        request_id = (
+            request.state.request_id
+            if request is not None and hasattr(request.state, "request_id")
+            else get_request_id()
+        )
+        trace_id = (
+            request.state.trace_id
+            if request is not None and hasattr(request.state, "trace_id")
+            else request_id
+        )
+
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "actor_id": actor_id,
@@ -64,11 +75,8 @@ class AuditLogger:
             "action": action,
             "resource": resource,
             "details": details or {},
-            "request_id": (
-                request.state.request_id
-                if request is not None and hasattr(request.state, "request_id")
-                else get_request_id()
-            ),
+            "request_id": request_id,
+            "trace_id": trace_id,
             "method": request.method if request is not None else None,
             "path": request.url.path if request is not None else None,
             "status_code": status_code,
@@ -83,7 +91,7 @@ class AuditLogger:
             success,
             extra={
                 "request_id": entry["request_id"],
-                "trace_id": entry.get("request_id") or "-",
+                "trace_id": entry.get("trace_id") or entry.get("request_id") or "-",
             },
         )
 

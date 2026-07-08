@@ -1,4 +1,6 @@
 import asyncio
+import sys
+import types
 
 import pytest
 
@@ -134,3 +136,32 @@ def test_tracing_configuration_reads_environment_variables(monkeypatch: pytest.M
         assert config["endpoint"] == "http://collector:4318"
     finally:
         monkeypatch.undo()
+
+
+def test_tracing_uses_otlp_exporter_in_otlp_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OTLP mode should instantiate the OTLP exporter when an endpoint is configured."""
+    import backend.observability.tracing as tracing
+
+    created: dict[str, object] = {}
+
+    class FakeExporter:
+        def __init__(self, endpoint: str) -> None:
+            created["endpoint"] = endpoint
+
+        def export(self, spans: object) -> None:
+            return None
+
+        def shutdown(self) -> None:
+            return None
+
+    fake_module = types.SimpleNamespace(OTLPSpanExporter=FakeExporter)
+    monkeypatch.setitem(
+        sys.modules, "opentelemetry.exporter.otlp.proto.http.trace_exporter", fake_module)
+    monkeypatch.setenv("OTEL_MODE", "otlp")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+    monkeypatch.setattr(tracing, "_tracer", None)
+
+    tracer = tracing._get_tracer()
+
+    assert tracer is not None
+    assert created.get("endpoint") == "http://collector:4318"

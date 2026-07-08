@@ -2,19 +2,23 @@ import uuid
 import time
 
 from fastapi import Depends, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from backend.app.factory import create_app
 from backend.observability.audit import audit_logger
 from backend.web.request_size_middleware import RequestSizeLimitMiddleware
 from backend.observability.logging import bind_request_context, logger, reset_request_context
-from backend.observability.metrics import get_metrics_snapshot, record_request_metrics
+from backend.observability.metrics import (
+    get_metrics_snapshot,
+    get_prometheus_metrics,
+    record_request_metrics,
+)
 from backend.observability.tracing import trace_span
 from backend.core.security.rbac import require_role
 from backend.resilience.rate_limit import RedisRateLimiter, shared_rate_limiter
 from backend.contracts.health_contracts import HealthResponse, MetricsResponse
 from backend.core.config import settings
-from backend.infrastructure.runtime import PlatformRuntime
+from backend.infrastructure.runtime import platform_runtime
 from backend.utils.redis_client import redis_client
 
 
@@ -205,9 +209,6 @@ async def add_request_context(request: Request, call_next):
         reset_request_context(token)
 
 
-platform_runtime = PlatformRuntime()
-
-
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     return HealthResponse(
@@ -224,8 +225,16 @@ async def websocket_health(websocket: WebSocket) -> None:
     await websocket.close()
 
 
-@app.get("/metrics", response_model=MetricsResponse)
-async def metrics(current_user=Depends(require_role("admin"))) -> MetricsResponse:
+@app.get("/metrics", response_model=None)
+async def metrics(
+    request: Request,
+    current_user=Depends(require_role("admin")),
+) -> MetricsResponse | Response:
+    accept_header = request.headers.get("accept", "")
+    if "text/plain" in accept_header:
+        payload, content_type = get_prometheus_metrics()
+        return Response(content=payload, media_type=content_type)
+
     snapshot = get_metrics_snapshot()
     return MetricsResponse(
         status="ok",

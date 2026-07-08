@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Generic, TypeVar
 
 from sqlalchemy import select
@@ -17,10 +18,17 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         self.model = model
 
     async def get_by_id(self, item_id: int) -> ModelType | None:
-        return await self.db.get(self.model, item_id)
+        stmt = select(self.model).where(self.model.id == item_id)
+        if hasattr(self.model, "deleted_at"):
+            stmt = stmt.where(getattr(self.model, "deleted_at").is_(None))
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def list(self, *, skip: int = 0, limit: int = 100) -> list[ModelType]:
-        stmt = select(self.model).offset(skip).limit(limit)
+        stmt = select(self.model)
+        if hasattr(self.model, "deleted_at"):
+            stmt = stmt.where(getattr(self.model, "deleted_at").is_(None))
+        stmt = stmt.offset(skip).limit(limit)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -58,9 +66,13 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db_obj
 
     async def delete(self, db_obj: ModelType) -> None:
-        await self.db.delete(db_obj)
+        if hasattr(db_obj, "deleted_at"):
+            db_obj.deleted_at = datetime.now(timezone.utc)
         await self.db.flush()
 
     async def count(self) -> int:
-        result = await self.db.execute(select(func.count()).select_from(self.model))
+        stmt = select(func.count()).select_from(self.model)
+        if hasattr(self.model, "deleted_at"):
+            stmt = stmt.where(getattr(self.model, "deleted_at").is_(None))
+        result = await self.db.execute(stmt)
         return int(result.scalar_one())

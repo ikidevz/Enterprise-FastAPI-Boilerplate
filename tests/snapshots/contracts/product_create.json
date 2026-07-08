@@ -1,0 +1,19 @@
+{
+	"example": {
+		"description": "Example description",
+		"name": "Sample product",
+		"price": 19.99
+	},
+	"properties": {
+		"name": { "minLength": 1, "title": "Name", "type": "string" },
+		"description": {
+			"anyOf": [{ "type": "string" }, { "type": "null" }],
+			"default": null,
+			"title": "Description"
+		},
+		"price": { "exclusiveMinimum": 0, "title": "Price", "type": "number" }
+	},
+	"required": ["name", "price"],
+	"title": "ProductCreate",
+	"type": "object"
+}

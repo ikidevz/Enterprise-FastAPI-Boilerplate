@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers, login_user, register_user
@@ -35,7 +34,9 @@ def test_full_authenticated_crud_flow(client: TestClient) -> None:
 
     list_response = client.get("/api/v1/users/", headers=auth_headers(token))
     assert list_response.status_code == 200
-    assert any(user["id"] == created["id"] for user in list_response.json())
+    payload = list_response.json()
+    assert payload["meta"]["total"] >= 1
+    assert any(user["id"] == created["id"] for user in payload["data"])
 
     update_response = client.put(
         f"/api/v1/users/{created['id']}",
@@ -133,3 +134,20 @@ def test_registration_cannot_self_assign_a_privileged_role(client: TestClient) -
     assert response.status_code in (201, 422)
     if response.status_code == 201:
         assert response.json()["role"] == "user"
+
+
+def test_user_registration_accepts_an_idempotency_key(client: TestClient) -> None:
+    """A repeated registration request with the same idempotency key should return the original response."""
+    payload = {
+        "email": "idempotency-user@example.com",
+        "username": "idempotency-user",
+        "password": "StrongPass123!",
+    }
+    headers = {"Idempotency-Key": "user-create-1"}
+
+    first = client.post("/api/v1/users/", headers=headers, json=payload)
+    second = client.post("/api/v1/users/", headers=headers, json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json()

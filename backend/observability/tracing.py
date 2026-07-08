@@ -4,13 +4,14 @@ import os
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from backend.observability.logging import logger
+from backend.observability.logging import get_trace_id, logger
 from backend.core.config import get_settings
 
 _tracer = None
 
 
 def _get_settings():
+    get_settings.cache_clear()
     return get_settings()
 
 
@@ -54,22 +55,25 @@ def _get_tracer():
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-    provider = TracerProvider(resource=Resource.create(
-        {"service.name": settings.otel_service_name}))
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider(resource=Resource.create(
+            {"service.name": settings.otel_service_name}))
+        trace.set_tracer_provider(provider)
 
-    if settings.otel_mode == "production" and settings.otel_exporter_otlp_endpoint:
+    mode = (settings.otel_mode or "basic").lower()
+    endpoint = settings.otel_exporter_otlp_endpoint
+    if mode in {"production", "otlp"} and endpoint:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(
-                endpoint=settings.otel_exporter_otlp_endpoint))
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
         )
     else:
-        # "basic" mode, or production mode with no endpoint configured yet:
+        # "basic" mode, or production/otlp mode with no endpoint configured yet:
         # still real spans, just exported to the console instead of a collector.
         provider.add_span_processor(
             BatchSpanProcessor(_SafeConsoleSpanExporter()))
 
-    trace.set_tracer_provider(provider)
     _tracer = trace.get_tracer(settings.otel_service_name)
     return _tracer
 
@@ -87,12 +91,17 @@ class _NullTracer:
 @contextmanager
 def trace_span(name: str, **attributes: object) -> Iterator[None]:
     tracer = _get_tracer()
+    trace_context = {"span": name, **attributes}
+    trace_id = get_trace_id()
+    if trace_id:
+        trace_context["trace_id"] = trace_id
     with tracer.start_as_current_span(name, attributes=attributes):
-        logger.info("span_started", extra={"span": name, **attributes})
+        logger.info("span_started", extra=trace_context)
         try:
             yield
         finally:
-            logger.info("span_finished", extra={"span": name})
+            logger.info("span_finished", extra={
+                        "span": name, "trace_id": trace_id})
 
 
 def get_tracing_configuration() -> dict[str, object]:

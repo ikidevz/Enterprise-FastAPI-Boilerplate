@@ -1,0 +1,44 @@
+{
+	"properties": {
+		"id": { "title": "Id", "type": "integer" },
+		"email": { "format": "email", "title": "Email", "type": "string" },
+		"username": { "title": "Username", "type": "string" },
+		"is_active": { "title": "Is Active", "type": "boolean" },
+		"is_verified": { "title": "Is Verified", "type": "boolean" },
+		"is_superuser": { "title": "Is Superuser", "type": "boolean" },
+		"role": { "title": "Role", "type": "string" },
+		"permissions": {
+			"items": { "type": "string" },
+			"title": "Permissions",
+			"type": "array"
+		},
+		"created_at": {
+			"anyOf": [
+				{ "type": "string", "format": "date-time" },
+				{ "type": "null" }
+			],
+			"default": null,
+			"title": "Created At"
+		},
+		"updated_at": {
+			"anyOf": [
+				{ "type": "string", "format": "date-time" },
+				{ "type": "null" }
+			],
+			"default": null,
+			"title": "Updated At"
+		}
+	},
+	"required": [
+		"id",
+		"email",
+		"username",
+		"is_active",
+		"is_verified",
+		"is_superuser",
+		"role",
+		"permissions"
+	],
+	"title": "UserOut",
+	"type": "object"
+}

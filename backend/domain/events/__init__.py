@@ -3,7 +3,10 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
+
+
+EventHandler = Callable[["DomainEvent"], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -21,3 +24,17 @@ class DomainEvent:
             occurred_at=datetime.now(timezone.utc),
             payload=payload,
         )
+
+
+class EventBus:
+    """Simple in-process event bus for domain events."""
+
+    def __init__(self) -> None:
+        self._handlers: dict[str, list[EventHandler]] = {}
+
+    def subscribe(self, event_type: str, handler: EventHandler) -> None:
+        self._handlers.setdefault(event_type, []).append(handler)
+
+    async def publish(self, event: DomainEvent) -> None:
+        for handler in self._handlers.get(event.payload.get("event_type", ""), []):
+            await handler(event)

@@ -56,6 +56,27 @@ def test_metrics_endpoint_counts_requests(client: TestClient) -> None:
     assert body["status_codes"]["200"] >= 1
 
 
+def test_metrics_endpoint_serves_prometheus_format_when_requested(client: TestClient) -> None:
+    """The metrics endpoint should also support Prometheus-style text output."""
+    register_user(
+        client,
+        email="metrics-prom-admin@example.com",
+        username="metrics-prom-admin",
+        role="admin",
+    )
+    token = login_user(client, email="metrics-prom-admin@example.com")
+
+    client.get("/health")
+    response = client.get(
+        "/metrics",
+        headers={**auth_headers(token), "accept": "text/plain; version=0.0.4"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "http_requests_total" in response.text
+
+
 def test_runtime_endpoint_reports_environment_and_uptime(client: TestClient) -> None:
     """/runtime is the operational snapshot behind PlatformRuntime - env, uptime, metrics."""
     register_user(

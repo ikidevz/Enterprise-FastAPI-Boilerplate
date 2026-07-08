@@ -49,7 +49,9 @@ def test_product_catalog_can_be_listed_and_read_by_anyone(client: TestClient) ->
 
     list_response = client.get("/api/v1/products/")
     assert list_response.status_code == 200
-    assert any(p["id"] == product_id for p in list_response.json())
+    payload = list_response.json()
+    assert payload["meta"]["total"] >= 1
+    assert any(p["id"] == product_id for p in payload["data"])
 
     read_response = client.get(f"/api/v1/products/{product_id}")
     assert read_response.status_code == 200
@@ -80,6 +82,33 @@ def test_duplicate_product_name_is_rejected(client: TestClient) -> None:
     duplicate = client.post("/api/v1/products/", headers=headers, json=payload)
     assert duplicate.status_code in (400, 409)
     assert duplicate.json()["error_code"] == "duplicate_product"
+
+
+def test_product_create_accepts_an_idempotency_key(client: TestClient) -> None:
+    """A repeated create request with the same idempotency key should return the original response."""
+    headers = _auth_headers_for_user(
+        client,
+        email="idempotency-product@example.com",
+        username="idempotency-product",
+        role="admin",
+    )
+    payload = {"name": "Idempotent Product",
+               "price": 13.5, "description": "idem"}
+    idem_headers = {**headers, "Idempotency-Key": "product-create-1"}
+
+    first = client.post("/api/v1/products/",
+                        headers=idem_headers, json=payload)
+    second = client.post("/api/v1/products/",
+                         headers=idem_headers, json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json()
+
+    list_response = client.get(
+        "/api/v1/products/", params={"search": "Idempotent Product"})
+    assert list_response.status_code == 200
+    assert len(list_response.json()["data"]) == 1
 
 
 def test_invalid_product_payload_is_rejected_with_422(client: TestClient) -> None:
@@ -127,7 +156,7 @@ def test_product_search_filters_by_name(client: TestClient) -> None:
     response = client.get("/api/v1/products/", params={"search": "widget"})
 
     assert response.status_code == 200
-    names = {item["name"] for item in response.json()}
+    names = {item["name"] for item in response.json()["data"]}
     assert names == {"Widget Alpha", "Widget Beta"}
 
 
@@ -155,7 +184,7 @@ def test_product_listing_supports_pagination(client: TestClient) -> None:
     )
 
     assert response.status_code == 200
-    assert len(response.json()) == 1
+    assert len(response.json()["data"]) == 1
 
 
 def test_products_can_be_sorted_by_price_descending(client: TestClient) -> None:
@@ -183,7 +212,7 @@ def test_products_can_be_sorted_by_price_descending(client: TestClient) -> None:
     )
 
     assert response.status_code == 200
-    prices = [item["price"] for item in response.json()]
+    prices = [item["price"] for item in response.json()["data"]]
     assert prices == sorted(prices, reverse=True)
 
 

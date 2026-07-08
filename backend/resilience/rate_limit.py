@@ -2,23 +2,21 @@ from collections import defaultdict
 from threading import Lock
 from time import time
 
+from backend.core.config import settings
 from backend.observability.logging import logger
 from backend.observability.metrics import record_rate_limiter_fallback
+from backend.utils.redis_client import redis_client
 
 
 class RateLimiter:
     def __init__(self) -> None:
         self._requests: dict[tuple[str, str], list[float]] = defaultdict(list)
         self._lock = Lock()
-        self._configured_limit: int | None = None
 
     async def allow_request(self, client_id: str, path: str, *, limit: int) -> bool:
         now = time()
         key = (client_id, path)
         with self._lock:
-            if self._configured_limit != limit:
-                self._requests.clear()
-                self._configured_limit = limit
             requests = self._requests[key]
             cutoff = now - 60
             requests[:] = [ts for ts in requests if ts > cutoff]
@@ -30,10 +28,15 @@ class RateLimiter:
     def reset(self) -> None:
         with self._lock:
             self._requests.clear()
-            self._configured_limit = None
 
 
 shared_rate_limiter = RateLimiter()
+
+
+def get_rate_limiter():
+    if settings.environment in {"dev", "test"}:
+        return shared_rate_limiter
+    return RedisRateLimiter(redis_client)
 
 
 class RedisRateLimiter:

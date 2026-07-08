@@ -1,0 +1,12 @@
+{
+	"additionalProperties": false,
+	"description": "Public self-registration payload.",
+	"properties": {
+		"email": { "format": "email", "title": "Email", "type": "string" },
+		"username": { "minLength": 3, "title": "Username", "type": "string" },
+		"password": { "minLength": 8, "title": "Password", "type": "string" }
+	},
+	"required": ["email", "username", "password"],
+	"title": "UserCreate",
+	"type": "object"
+}

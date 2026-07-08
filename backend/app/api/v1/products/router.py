@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.products import CreateProductUseCase, UpdateProductUseCase
@@ -14,11 +14,14 @@ from backend.contracts.products_contracts import ProductCreate, ProductOut, Prod
 from backend.observability.tracing import trace_span
 from backend.domain.users.model import User
 from backend.app.socketio_app import sio
+from backend.common.schema import PaginatedResponse, PaginationMeta
+from backend.resilience.idempotency import get_idempotency_store
 
 router = APIRouter(prefix="/products", tags=["products"])
+IDEMPOTENCY_STORE = get_idempotency_store()
 
 
-@router.get("/", response_model=list[ProductOut])
+@router.get("/", response_model=PaginatedResponse[ProductOut])
 async def list_products(
     search: str | None = None,
     skip: int = Query(0, ge=0),
@@ -26,8 +29,9 @@ async def list_products(
     sort: str | None = None,
     order: Literal["asc", "desc"] = "asc",
     db: AsyncSession = Depends(get_db),
-) -> list[ProductOut]:
-    service = ProductService(ProductRepository(db))
+) -> PaginatedResponse[ProductOut]:
+    repository = ProductRepository(db)
+    service = ProductService(repository)
     products = await service.list_with_filters(
         search=search,
         skip=skip,
@@ -35,7 +39,13 @@ async def list_products(
         sort=sort,
         order=order,
     )
-    return [ProductOut.model_validate(product) for product in products]
+    total = await repository.count_with_filters(search=search)
+    page = (skip // limit) + 1 if limit else 1
+    pages = (total + limit - 1) // limit if limit else 1
+    return PaginatedResponse(
+        data=[ProductOut.model_validate(product) for product in products],
+        meta=PaginationMeta(page=page, size=limit, total=total, pages=pages),
+    )
 
 
 @router.get("/{product_id}", response_model=ProductOut)
@@ -53,7 +63,14 @@ async def create_product(
     payload: ProductCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "staff")),
+    idempotency_key: str | None = Header(
+        default=None, alias="Idempotency-Key"),
 ) -> ProductOut:
+    if idempotency_key:
+        cached = await IDEMPOTENCY_STORE.get(f"products:create:{idempotency_key}")
+        if cached is not None:
+            return ProductOut.model_validate(cached)
+
     with trace_span("product.create"):
         try:
             service = ProductService(ProductRepository(db))
@@ -76,6 +93,11 @@ async def create_product(
                 status_code=status.HTTP_201_CREATED,
                 success=True,
             )
+            if idempotency_key:
+                await IDEMPOTENCY_STORE.set(
+                    f"products:create:{idempotency_key}",
+                    ProductOut.model_validate(product).model_dump(mode="json"),
+                )
             return product
         except DomainError as exc:
             raise to_http_exception(exc) from exc

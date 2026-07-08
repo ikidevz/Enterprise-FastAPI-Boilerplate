@@ -17,6 +17,7 @@ from backend.infrastructure.upload_storage import (
 )
 from backend.utils.redis_client import redis_client
 from backend.core.config import settings
+from backend.domain.events import DomainEvent, EventBus
 
 
 class PlatformRuntime:
@@ -25,6 +26,15 @@ class PlatformRuntime:
     def __init__(self) -> None:
         self.metrics_collector = metrics_collector
         self.started_at = time()
+        self.event_bus = EventBus()
+        self._register_default_handlers()
+
+    def _register_default_handlers(self) -> None:
+        async def log_domain_event(event: DomainEvent) -> None:
+            logger.info("domain_event_published",
+                        extra={"event": event.payload})
+
+        self.event_bus.subscribe("user.registered", log_domain_event)
 
     def build_runtime_snapshot(self, *, environment: str) -> dict[str, object]:
         export_metrics()
@@ -39,6 +49,9 @@ class PlatformRuntime:
             },
             "metrics": metrics_snapshot,
         }
+
+
+platform_runtime = PlatformRuntime()
 
 
 def build_infrastructure_registry(rate_limiter: Any) -> BootstrapRegistry:

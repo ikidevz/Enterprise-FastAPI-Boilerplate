@@ -1,7 +1,6 @@
-import pytest
 from fastapi.testclient import TestClient
 
-from conftest import auth_headers, client, login_user, register_user
+from conftest import auth_headers, login_user, register_user
 from backend.core.security.rbac import AuthorizationPolicy
 from backend.domain.users.model import User
 
@@ -240,3 +239,36 @@ def test_delete_product_requires_admin_role(client: TestClient) -> None:
     )
 
     assert response.status_code == 403
+
+
+def test_admin_can_bulk_update_user_roles_and_permissions(client: TestClient) -> None:
+    """Admin users can apply a batch of role/permission updates in one request."""
+    register_user(client, email="bulk-admin@example.com",
+                  username="bulk-admin", role="admin")
+    admin_token = login_user(client, email="bulk-admin@example.com")
+
+    register_user(client, email="bulk-user-1@example.com",
+                  username="bulk-user-1", role="user")
+    register_user(client, email="bulk-user-2@example.com",
+                  username="bulk-user-2", role="user")
+
+    response = client.patch(
+        "/api/v1/admin/users/roles",
+        headers=auth_headers(admin_token),
+        json={
+            "updates": [
+                {"user_id": 2, "role": "staff",
+                    "permissions": ["read:reports"]},
+                {"user_id": 3, "role": "admin",
+                    "permissions": ["manage:users"]},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert body[0]["role"] == "staff"
+    assert body[0]["permissions"] == ["read:reports"]
+    assert body[1]["role"] == "admin"
+    assert body[1]["permissions"] == ["manage:users"]

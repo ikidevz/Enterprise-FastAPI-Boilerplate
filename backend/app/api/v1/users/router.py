@@ -1,4 +1,4 @@
-from fastapi import Query, APIRouter, Depends, Request, status
+from fastapi import Header, HTTPException, Query, APIRouter, Depends, Request, status
 
 from backend.domain.users.model import User
 from backend.domain.users.service import UserService
@@ -9,10 +9,16 @@ from backend.web.exceptions import DomainError, NotFoundError, to_http_exception
 from backend.core.security.rbac import require_role
 from backend.contracts.users_contracts import UserCreate, UserOut, UserUpdate
 from backend.integrations.email_adapter import EmailIntegrationAdapter
+from backend.common.schema import PaginatedResponse, PaginationMeta
+from backend.resilience.idempotency import get_idempotency_store
+from backend.resilience.rate_limit import get_rate_limiter
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 SENSITIVE_FIELDS = {"password"}
+WRITE_RATE_LIMITER = get_rate_limiter()
+WRITE_RATE_LIMIT = 5
+IDEMPOTENCY_STORE = get_idempotency_store()
 
 
 def _safe_changes(payload) -> dict:
@@ -23,25 +29,31 @@ def _safe_changes(payload) -> dict:
     }
 
 
-@router.get("/", response_model=list[UserOut])
+@router.get("/", response_model=PaginatedResponse[UserOut])
 async def list_users(
     request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(require_role("admin")),
     service: UserService = Depends(get_user_service),
-) -> list[UserOut]:
+) -> PaginatedResponse[UserOut]:
     users = await service.list(skip=skip, limit=limit)
+    total = await service.repository.count()
+    page = (skip // limit) + 1 if limit else 1
+    pages = (total + limit - 1) // limit if limit else 1
 
     audit_logger.log(
         actor=current_user,
         action="user.list_viewed",
         resource="users",
-        details={"count": len(users)},
+        details={"count": len(users), "total": total},
         request=request,
     )
 
-    return [service.to_public(user) for user in users]
+    return PaginatedResponse(
+        data=[service.to_public(user) for user in users],
+        meta=PaginationMeta(page=page, size=limit, total=total, pages=pages),
+    )
 
 
 @router.get("/{user_id}", response_model=UserOut)
@@ -60,7 +72,27 @@ async def read_user(
 
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def create_user(request: Request, payload: UserCreate, service: UserService = Depends(get_user_service)) -> UserOut:
+async def create_user(
+    request: Request,
+    payload: UserCreate,
+    service: UserService = Depends(get_user_service),
+    idempotency_key: str | None = Header(
+        default=None, alias="Idempotency-Key"),
+) -> UserOut:
+    normalized_email = payload.email.strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    if not await WRITE_RATE_LIMITER.allow_request(normalized_email, "users:create:email", limit=WRITE_RATE_LIMIT):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+    if not await WRITE_RATE_LIMITER.allow_request(client_ip, "users:create:ip", limit=WRITE_RATE_LIMIT * 2):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+
+    if idempotency_key:
+        cached = await IDEMPOTENCY_STORE.get(f"users:create:{idempotency_key}")
+        if cached is not None:
+            return UserOut.model_validate(cached)
+
     try:
         use_case = RegisterUserUseCase(
             service, notification_port=EmailIntegrationAdapter())
@@ -74,6 +106,11 @@ async def create_user(request: Request, payload: UserCreate, service: UserServic
             status_code=status.HTTP_201_CREATED,
             success=True,
         )
+        if idempotency_key:
+            await IDEMPOTENCY_STORE.set(
+                f"users:create:{idempotency_key}",
+                user.model_dump(mode="json"),
+            )
         return user
     except DomainError as exc:
         raise to_http_exception(exc) from exc

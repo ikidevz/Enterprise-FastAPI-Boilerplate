@@ -28,6 +28,9 @@ class RegisterUserUseCase:
             "email": user.email,
         })
         logger.info("domain_event", extra={"event": event.payload})
+        from backend.infrastructure.runtime import platform_runtime
+
+        await platform_runtime.event_bus.publish(event)
         if self.notification_port is not None:
             self.notification_port.send(
                 to=user.email,

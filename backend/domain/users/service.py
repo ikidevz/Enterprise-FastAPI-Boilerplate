@@ -69,6 +69,13 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
         )
         return await self.repository.create(user)
 
+    async def delete(self, db_obj: User) -> None:
+        db_obj.deleted_at = datetime.now(timezone.utc)
+        db_obj.updated_at = datetime.now(timezone.utc)
+        self.repository.db.add(db_obj)
+        await self.repository.db.flush()
+        await self.repository.db.refresh(db_obj)
+
     async def update(self, db_obj: User, obj_in: UserUpdate) -> User:
         update_data = obj_in.model_dump(exclude_unset=True)
 

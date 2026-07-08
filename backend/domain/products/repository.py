@@ -1,4 +1,4 @@
-from sqlalchemy import asc, desc, or_, select
+from sqlalchemy import asc, desc, or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.products.model import Product
@@ -13,6 +13,18 @@ class ProductRepository(BaseRepository[Product, object, object]):
         result = await self.db.execute(select(Product).where(Product.name == name))
         return result.scalar_one_or_none()
 
+    def _build_filter_query(self, *, search: str | None = None):
+        stmt = select(Product).where(Product.deleted_at.is_(None))
+        if search:
+            term = f"%{search.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    Product.name.ilike(term),
+                    Product.description.ilike(term),
+                )
+            )
+        return stmt
+
     async def list_with_filters(
         self,
         *,
@@ -22,15 +34,7 @@ class ProductRepository(BaseRepository[Product, object, object]):
         sort: str | None = None,
         order: str = "asc",
     ) -> list[Product]:
-        stmt = select(Product)
-        if search:
-            term = f"%{search.lower()}%"
-            stmt = stmt.where(
-                or_(
-                    Product.name.ilike(term),
-                    Product.description.ilike(term),
-                )
-            )
+        stmt = self._build_filter_query(search=search)
 
         sort_column = getattr(Product, sort, None) if sort in {
             "id", "name", "price", "created_at", "updated_at"} else None
@@ -42,3 +46,9 @@ class ProductRepository(BaseRepository[Product, object, object]):
         stmt = stmt.offset(skip).limit(limit).order_by(direction)
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_with_filters(self, *, search: str | None = None) -> int:
+        stmt = self._build_filter_query(search=search)
+        stmt = stmt.with_only_columns(func.count()).order_by(None)
+        result = await self.db.execute(stmt)
+        return int(result.scalar_one())

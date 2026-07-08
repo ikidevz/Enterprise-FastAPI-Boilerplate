@@ -11,6 +11,10 @@ from backend.contracts.users_contracts import UserOut, AdminUserRoleUpdate
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+class BulkRoleUpdatePayload(dict):
+    pass
+
+
 @router.get("/users", response_model=list[UserOut])
 async def list_admin_users(
     request: Request,
@@ -53,6 +57,7 @@ async def set_user_role(
     if payload.permissions is not None:
         user.permissions = payload.permissions
     await service.repository.db.flush()
+    await service.repository.db.refresh(user)
 
     audit_logger.log(
         actor=current_user,
@@ -63,3 +68,69 @@ async def set_user_role(
         request=request,
     )
     return service.to_public(user)
+
+
+@router.patch("/users/roles", response_model=list[UserOut])
+async def bulk_set_user_roles(
+    request: Request,
+    payload: dict[str, list[dict[str, object]]],
+    current_user: User = Depends(require_role("admin")),
+    service: UserService = Depends(get_user_service),
+) -> list[UserOut]:
+    updates = payload.get("updates", [])
+    if not isinstance(updates, list):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="updates must be a list")
+
+    changed: list[UserOut] = []
+    for entry in updates:
+        if not isinstance(entry, dict):
+            continue
+        user_id = entry.get("user_id")
+        if not isinstance(user_id, int):
+            continue
+        user = await service.get_by_id(user_id)
+        if not user:
+            continue
+
+        before = {"role": user.role, "permissions": list(user.permissions)}
+        if entry.get("role") is not None:
+            role_value = entry.get("role")
+            if role_value not in {"user", "staff", "admin"}:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid role")
+            user.role = role_value
+        if entry.get("permissions") is not None:
+            permissions_value = entry.get("permissions")
+            if isinstance(permissions_value, list):
+                user.permissions = [str(item) for item in permissions_value]
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid permissions")
+        await service.repository.db.flush()
+        await service.repository.db.refresh(user)
+        changed.append(
+            UserOut(
+                id=user.id,
+                email=user.email,
+                username=user.username,
+                is_active=user.is_active,
+                is_verified=user.is_verified,
+                is_superuser=user.is_superuser,
+                role=user.role,
+                permissions=list(user.permissions or []),
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+            )
+        )
+
+        audit_logger.log(
+            actor=current_user,
+            action="user.role_changed",
+            resource=f"user:{user.id}",
+            details={"before": before, "after": {
+                "role": user.role, "permissions": list(user.permissions)}},
+            request=request,
+        )
+
+    return changed

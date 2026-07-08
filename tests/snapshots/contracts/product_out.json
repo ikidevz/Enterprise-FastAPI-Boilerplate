@@ -1,0 +1,31 @@
+{
+	"properties": {
+		"id": { "title": "Id", "type": "integer" },
+		"name": { "title": "Name", "type": "string" },
+		"description": {
+			"anyOf": [{ "type": "string" }, { "type": "null" }],
+			"default": null,
+			"title": "Description"
+		},
+		"price": { "title": "Price", "type": "number" },
+		"created_at": {
+			"anyOf": [
+				{ "type": "string", "format": "date-time" },
+				{ "type": "null" }
+			],
+			"default": null,
+			"title": "Created At"
+		},
+		"updated_at": {
+			"anyOf": [
+				{ "type": "string", "format": "date-time" },
+				{ "type": "null" }
+			],
+			"default": null,
+			"title": "Updated At"
+		}
+	},
+	"required": ["id", "name", "price"],
+	"title": "ProductOut",
+	"type": "object"
+}

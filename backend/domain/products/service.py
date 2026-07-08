@@ -51,3 +51,10 @@ class ProductService(BaseService[Product, object, object]):
         await self.repository.db.flush()
         await self.repository.db.refresh(db_obj)
         return db_obj
+
+    async def delete(self, db_obj: Product) -> None:
+        db_obj.deleted_at = datetime.now(timezone.utc)
+        db_obj.updated_at = datetime.now(timezone.utc)
+        self.repository.db.add(db_obj)
+        await self.repository.db.flush()
+        await self.repository.db.refresh(db_obj)

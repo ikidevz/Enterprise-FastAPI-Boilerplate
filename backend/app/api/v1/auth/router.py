@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from backend.common.schema import (
 )
 from backend.contracts.auth_contracts import (
     DetailResponse,
+    PasswordPolicyResponse,
     TokenResponse,
 )
 from backend.contracts.users_contracts import UserOut
@@ -32,18 +33,15 @@ from backend.database.session import get_db
 from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
 from backend.domain.users.model import User
-from backend.resilience.rate_limit import shared_rate_limiter, RedisRateLimiter
-from backend.utils.redis_client import redis_client
+from backend.resilience.rate_limit import get_rate_limiter
 from jose import jwt as jose_jwt
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_ATTEMPTS_PER_MINUTE = 10
 
-_login_rate_limiter = (
-    RedisRateLimiter(
-        redis_client) if settings.environment != "dev" else shared_rate_limiter
-)
+_login_rate_limiter = get_rate_limiter()
+_AUTH_WRITE_RATE_LIMIT = 5
 
 
 @router.post("/login", summary="Sign in", response_description="Access and refresh tokens", response_model=TokenResponse)
@@ -162,8 +160,28 @@ async def logout(
     return {"detail": "Logged out"}
 
 
+@router.get("/password-policy", response_model=PasswordPolicyResponse)
+async def password_policy() -> PasswordPolicyResponse:
+    return PasswordPolicyResponse(
+        min_length=settings.password_min_length,
+        require_uppercase=settings.password_require_uppercase,
+        require_lowercase=settings.password_require_lowercase,
+        require_number=settings.password_require_number,
+        require_special_character=settings.password_require_special_character,
+    )
+
+
 @router.post("/email-verification/request", summary="Request email verification")
-async def request_email_verification(payload: EmailVerificationRequest, db: AsyncSession = Depends(get_db)) -> DetailResponse:
+async def request_email_verification(request: Request, payload: EmailVerificationRequest, db: AsyncSession = Depends(get_db)) -> DetailResponse:
+    normalized_email = payload.email.strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    if not await _login_rate_limiter.allow_request(normalized_email, "auth:email-verification:email", limit=_AUTH_WRITE_RATE_LIMIT):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+    if not await _login_rate_limiter.allow_request(client_ip, "auth:email-verification:ip", limit=_AUTH_WRITE_RATE_LIMIT * 2):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+
     repository = UserRepository(db)
     use_case = RequestEmailVerificationUseCase(repository)
     return await use_case.execute(payload=payload)
@@ -180,7 +198,16 @@ async def confirm_email_verification(payload: EmailVerificationConfirm, db: Asyn
 
 
 @router.post("/password-reset/request", summary="Request password reset")
-async def request_password_reset(payload: PasswordResetRequest, db: AsyncSession = Depends(get_db)) -> DetailResponse:
+async def request_password_reset(request: Request, payload: PasswordResetRequest, db: AsyncSession = Depends(get_db)) -> DetailResponse:
+    normalized_email = payload.email.strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    if not await _login_rate_limiter.allow_request(normalized_email, "auth:password-reset:email", limit=_AUTH_WRITE_RATE_LIMIT):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+    if not await _login_rate_limiter.allow_request(client_ip, "auth:password-reset:ip", limit=_AUTH_WRITE_RATE_LIMIT * 2):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests")
+
     repository = UserRepository(db)
     use_case = RequestPasswordResetUseCase(repository)
     return await use_case.execute(payload=payload)

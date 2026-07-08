@@ -6,6 +6,7 @@ from backend.common.background_jobs import background_job_manager
 from backend.infrastructure.email.transport import email_delivery_service
 from backend.web.exceptions import ForbiddenError, NotFoundError, UnauthorizedError
 from backend.observability.logging import logger
+from backend.observability.audit import audit_logger
 from backend.common.schema import (
     EmailVerificationConfirm,
     EmailVerificationRequest,
@@ -78,6 +79,20 @@ class RefreshTokenUseCase:
             isinstance(stored_value, str)
             and stored_value.startswith(token_store.USED_TOKEN_PREFIX)
         ):
+            user_id = token_store._used_token_user_id(stored_value)
+            if user_id is not None:
+                await token_store.revoke_all_for_user(user_id)
+                await revocation_store.revoke_all_access_tokens_for_user(user_id)
+            logger.warning(
+                "refresh_token_replay_detected",
+                extra={"user_id": user_id},
+            )
+            audit_logger.log(
+                None,
+                "security.refresh_token_replay_detected",
+                "session",
+                {"user_id": user_id},
+            )
             raise UnauthorizedError("Invalid refresh token")
 
         user = await self.repository.get_by_id(int(stored_value))

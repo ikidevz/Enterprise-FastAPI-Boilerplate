@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers, login_user, register_user
@@ -229,6 +228,64 @@ def test_refresh_token_cannot_be_reused_after_rotation(client: TestClient) -> No
     reuse_attempt = client.post(
         "/api/v1/auth/refresh", json={"refresh_token": old_refresh_token})
     assert reuse_attempt.status_code == 401
+
+
+def test_replayed_refresh_token_revokes_all_current_sessions(client: TestClient) -> None:
+    """A replayed refresh token should invalidate the user's other active sessions."""
+    register_user(client, email="replay@example.com", username="replay")
+    login_response = client.post(
+        "/api/v1/auth/login",
+        data={"username": "replay@example.com", "password": "StrongPass123!"},
+    )
+    old_refresh_token = login_response.json()["refresh_token"]
+    original_access_token = login_response.json()["access_token"]
+
+    first_refresh = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert first_refresh.status_code == 200
+
+    replay_response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": old_refresh_token},
+    )
+    assert replay_response.status_code == 401
+
+    protected_response = client.get(
+        "/api/v1/auth/me",
+        headers=auth_headers(original_access_token),
+    )
+    assert protected_response.status_code == 401
+
+
+def test_user_registration_is_rate_limited_per_email(client: TestClient) -> None:
+    """Repeated registration attempts for the same email should be throttled."""
+    from backend.resilience.rate_limit import shared_rate_limiter
+
+    shared_rate_limiter.reset()
+    payload = {
+        "email": "rate-limit@example.com",
+        "username": "rate-limit",
+        "password": "StrongPass123!",
+    }
+
+    for _ in range(5):
+        response = client.post("/api/v1/users/", json=payload)
+        assert response.status_code in (201, 400, 409)
+
+    throttled = client.post("/api/v1/users/", json=payload)
+    assert throttled.status_code == 429
+
+
+def test_password_policy_endpoint_exposes_the_active_rules(client: TestClient) -> None:
+    """The auth API should expose the password-policy settings for clients."""
+    response = client.get("/api/v1/auth/password-policy")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["min_length"] >= 8
+    assert body["require_uppercase"] is True
 
 
 def test_refresh_with_an_unknown_token_is_rejected(client: TestClient) -> None:

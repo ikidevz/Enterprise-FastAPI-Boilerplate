@@ -145,6 +145,16 @@ class Settings(BaseSettings):
             "AZURE_STORAGE_CONTAINER", "azure_storage_container"),
     )
     password_reset_token_ttl_minutes: int = Field(default=15)
+    password_min_length: int = Field(default=8, validation_alias=AliasChoices(
+        "PASSWORD_MIN_LENGTH", "password_min_length"))
+    password_require_uppercase: bool = Field(default=True, validation_alias=AliasChoices(
+        "PASSWORD_REQUIRE_UPPERCASE", "password_require_uppercase"))
+    password_require_lowercase: bool = Field(default=True, validation_alias=AliasChoices(
+        "PASSWORD_REQUIRE_LOWERCASE", "password_require_lowercase"))
+    password_require_number: bool = Field(default=True, validation_alias=AliasChoices(
+        "PASSWORD_REQUIRE_NUMBER", "password_require_number"))
+    password_require_special_character: bool = Field(default=True, validation_alias=AliasChoices(
+        "PASSWORD_REQUIRE_SPECIAL_CHARACTER", "password_require_special_character"))
     email_backend: str = Field(default="console", validation_alias=AliasChoices(
         "EMAIL_BACKEND", "email_backend"))
     smtp_host: str | None = Field(

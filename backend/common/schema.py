@@ -4,9 +4,25 @@ from typing import Generic, TypeVar, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from backend.core.config import settings
+
 T = TypeVar("T")
-PASSWORD_PATTERN = re.compile(
-    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$")
+
+
+def _build_password_pattern() -> re.Pattern[str]:
+    parts: list[str] = []
+    if settings.password_require_lowercase:
+        parts.append(r"(?=.*[a-z])")
+    if settings.password_require_uppercase:
+        parts.append(r"(?=.*[A-Z])")
+    if settings.password_require_number:
+        parts.append(r"(?=.*\d)")
+    if settings.password_require_special_character:
+        parts.append(r"(?=.*[^A-Za-z0-9])")
+    return re.compile(r"^" + "".join(parts) + rf".{{{settings.password_min_length},}}$")
+
+
+PASSWORD_PATTERN = _build_password_pattern()
 
 UserRole = Literal["user", "staff", "admin"]
 
@@ -44,7 +60,7 @@ class UserCreate(BaseModel):
 
     email: EmailStr
     username: str = Field(min_length=3)
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=settings.password_min_length)
 
     @field_validator("email")
     @classmethod
@@ -60,7 +76,8 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
     username: str | None = Field(default=None, min_length=3)
-    password: str | None = Field(default=None, min_length=8)
+    password: str | None = Field(
+        default=None, min_length=settings.password_min_length)
     is_superuser: bool | None = None
     is_active: bool | None = None
     role: UserRole | None = None
@@ -99,7 +116,7 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     token: str = Field(min_length=1)
-    new_password: str = Field(min_length=8)
+    new_password: str = Field(min_length=settings.password_min_length)
 
     @field_validator("new_password")
     @classmethod

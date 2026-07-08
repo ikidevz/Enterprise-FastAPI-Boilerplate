@@ -1,8 +1,6 @@
 import asyncio
 import inspect
 
-import pytest
-
 from backend.app import socketio_app
 
 
