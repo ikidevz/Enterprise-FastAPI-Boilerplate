@@ -17,8 +17,6 @@ from backend.observability.tracing import trace_span
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pdf", ".txt", ".csv"}
-_upload_owners: dict[str, int] = {}
-
 _MAGIC_BYTES: dict[str, tuple[bytes, ...]] = {
     ".png": (b"\x89PNG\r\n\x1a\n",),
     ".jpg": (b"\xff\xd8\xff",),

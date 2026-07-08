@@ -6,6 +6,8 @@ from email.message import EmailMessage
 from typing import Protocol
 
 from backend.core.config import settings
+from backend.resilience.retry import CircuitBreaker, CircuitBreakerOpenError
+from backend.observability.logging import logger
 
 
 class EmailTransport(Protocol):
@@ -27,27 +29,39 @@ class SMTPEmailTransport:
         self.use_tls = settings.smtp_use_tls
         self.use_ssl = settings.smtp_use_ssl
         self.from_email = settings.smtp_from_email
+        self._breaker = CircuitBreaker(failure_threshold=3, reset_timeout=60.0)
 
     def send(self, *, to: str, subject: str, body: str) -> None:
+        self._breaker.before_call()
         message = EmailMessage()
         message["From"] = self.from_email
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
 
-        if self.use_ssl:
-            with smtplib.SMTP_SSL(self.host, self.port) as server:
-                if self.username and self.password:
-                    server.login(self.username, self.password)
-                server.sendmail(self.from_email, [to], message.as_string())
-            return
-
-        with smtplib.SMTP(self.host, self.port) as server:
-            if self.use_tls:
-                server.starttls()
-            if self.username and self.password:
-                server.login(self.username, self.password)
-            server.sendmail(self.from_email, [to], message.as_string())
+        try:
+            if self.use_ssl:
+                with smtplib.SMTP_SSL(self.host, self.port) as server:
+                    if self.username and self.password:
+                        server.login(self.username, self.password)
+                    server.sendmail(self.from_email, [to], message.as_string())
+            else:
+                with smtplib.SMTP(self.host, self.port) as server:
+                    if self.use_tls:
+                        server.starttls()
+                    if self.username and self.password:
+                        server.login(self.username, self.password)
+                    server.sendmail(self.from_email, [to], message.as_string())
+        except CircuitBreakerOpenError:
+            logger.error("smtp_circuit_open_skipping_send", extra={"to": to})
+            raise
+        except Exception as exc:
+            self._breaker.record_failure()
+            logger.error("smtp_send_failed", extra={
+                         "to": to, "error": str(exc)})
+            raise
+        else:
+            self._breaker.record_success()
 
 
 @dataclass

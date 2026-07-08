@@ -2,12 +2,7 @@
 
 from backend.contracts.auth_contracts import (
     DetailResponse,
-    EmailVerificationConfirm,
-    EmailVerificationRequest,
-    PasswordResetConfirm,
-    PasswordResetRequest,
-    RefreshTokenRequest,
-    TokenResponse,
+    TokenResponse
 )
 from backend.contracts.health_contracts import HealthResponse, MetricsResponse
 from backend.contracts.products_contracts import ProductCreate, ProductOut, ProductUpdate
@@ -22,16 +17,11 @@ from backend.contracts.users_contracts import (
 __all__ = [
     "AdminUserRoleUpdate",
     "DetailResponse",
-    "EmailVerificationConfirm",
-    "EmailVerificationRequest",
     "HealthResponse",
     "MetricsResponse",
-    "PasswordResetConfirm",
-    "PasswordResetRequest",
     "ProductCreate",
     "ProductOut",
     "ProductUpdate",
-    "RefreshTokenRequest",
     "TokenResponse",
     "UploadResponse",
     "UserCreate",

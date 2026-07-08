@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import auth_headers, login_user, register_user
+from conftest import auth_headers, client, login_user, register_user
 from backend.core.security.rbac import AuthorizationPolicy
 from backend.domain.users.model import User
 
@@ -131,17 +131,12 @@ def test_regular_user_cannot_change_their_own_privileged_fields(client: TestClie
 
 
 def test_regular_user_cannot_list_all_users(client: TestClient) -> None:
-    """Only admin/staff should be able to list all users. Regular users should get 403.
+    """Only admin/staff should be able to list all users. Regular users should get 403."""
+    register_user(client, email="admin-list@example.com",
+                  username="admin-list", role="admin")
 
-    See IMPROVEMENT.MD section 1.1: GET /api/v1/users/ has no role check at all.
-    A logged-in regular user can call it and get back every user's email/username/role/permissions.
-    This test documents the intended behavior and will pass once the bug is fixed.
-    """
-    # Register two users: admin and regular
-    admin_user = register_user(client, email="admin-list@example.com",
-                               username="admin-list", role="admin")
-    regular_user = register_user(client, email="regular-list@example.com",
-                                 username="regular-list", role="user")
+    register_user(client, email="regular-list@example.com",
+                  username="regular-list", role="user")
 
     # Regular user tries to list all users
     regular_token = login_user(client, email="regular-list@example.com")
@@ -188,8 +183,8 @@ def test_update_product_requires_admin_role(client: TestClient) -> None:
     See IMPROVEMENT.MD section 1.2: PUT /api/v1/products/{id} only checks "is logged in".
     """
     # Create a product as admin
-    admin_user = register_user(client, email="admin-product@example.com",
-                               username="admin-product", role="admin")
+    register_user(client, email="admin-product@example.com",
+                  username="admin-product", role="admin")
     admin_token = login_user(client, email="admin-product@example.com")
 
     create_response = client.post(
@@ -221,8 +216,8 @@ def test_delete_product_requires_admin_role(client: TestClient) -> None:
     See IMPROVEMENT.MD section 1.2: DELETE /api/v1/products/{id} only checks "is logged in".
     """
     # Create a product as admin
-    admin_user = register_user(client, email="admin-product-del@example.com",
-                               username="admin-product-del", role="admin")
+    register_user(client, email="admin-product-del@example.com",
+                  username="admin-product-del", role="admin")
     admin_token = login_user(client, email="admin-product-del@example.com")
 
     create_response = client.post(

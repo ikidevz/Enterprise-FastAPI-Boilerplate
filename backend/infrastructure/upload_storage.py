@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from uuid import uuid4
 from pathlib import Path
-from typing import Any
-
-from backend.core.config import settings
 
 
 class UploadStorage:

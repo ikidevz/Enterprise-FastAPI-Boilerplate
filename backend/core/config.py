@@ -218,13 +218,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_insecure_prod_defaults(self) -> "Settings":
-        if self.environment == "prod":
+        if self.environment in ("prod", "staging"):
             if self.secret_key == "change-me-in-production":
                 raise ValueError(
-                    "SECRET_KEY must be set to a real secret in production")
+                    f"SECRET_KEY must be set to a real secret in {self.environment}")
             if self.default_admin_password == "Admin123!":
                 raise ValueError(
-                    "DEFAULT_ADMIN_PASSWORD must be changed in production")
+                    f"DEFAULT_ADMIN_PASSWORD must be changed in {self.environment}")
         return self
 
     @model_validator(mode="after")

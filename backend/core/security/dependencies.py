@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
 from backend.database.session import get_db
-from backend.domain.users.model import User
 from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
 from backend.core.security.token_store import TokenStore

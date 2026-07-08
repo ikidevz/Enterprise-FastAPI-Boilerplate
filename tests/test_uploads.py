@@ -1,8 +1,5 @@
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
-from backend.core.config import settings
 from conftest import auth_headers, login_user, register_user
 
 

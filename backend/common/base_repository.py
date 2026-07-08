@@ -31,9 +31,6 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         elif hasattr(obj_in, "model_dump"):
             db_obj = self.model(**obj_in.model_dump())
 
-        elif isinstance(obj_in, dict):
-            db_obj = self.model(**obj_in)
-
         else:
             raise TypeError(
                 f"Unsupported object type: {type(obj_in)}"
@@ -46,8 +43,13 @@ class BaseRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         return db_obj
 
     async def update(self, db_obj: ModelType, obj_in: UpdateSchemaType) -> ModelType:
-        update_data = obj_in.model_dump(exclude_unset=True) if hasattr(
-            obj_in, "model_dump") else obj_in
+        if not hasattr(obj_in, "model_dump"):
+            raise TypeError(
+                "update() requires a Pydantic schema instance, not a raw dict "
+                "— construct a schema first so fields are validated and allow-listed."
+            )
+
+        update_data = obj_in.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(db_obj, field, value)
         self.db.add(db_obj)

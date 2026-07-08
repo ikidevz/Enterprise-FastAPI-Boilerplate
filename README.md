@@ -235,7 +235,7 @@ B --> G[HTTP Response]
 ### User and admin workflows
 
 - CRUD endpoints for users, plus a `/me` profile route for the current authenticated user
-- Admin-only user listing and a permissions example endpoint demonstrating policy-based access checks
+- Admin-only user listing, plus an admin-only role/permission-change endpoint (`PATCH /api/v1/admin/users/{user_id}/role`) demonstrating policy-based access checks
 - Role (`role`) and explicit `permissions` list on the user model, evaluated through a small `AuthorizationPolicy`/`PermissionPolicy` layer
 
 ### Product module
@@ -271,19 +271,20 @@ A second domain module included to show the same layered pattern applied twice:
 - [backend/application](backend/application) — use cases per feature (`users/`, `products/`, `auth/`), plus shared ports and application-level services
 - [backend/domain](backend/domain) — per-feature services, repositories, and models (`users/`, `products/`), plus `events/` for domain events
 - [backend/database](backend/database) — async engine/session setup and the shared declarative base
-- [backend/common](backend/common) — shared cross-cutting code: schemas, auth dependencies, RBAC/permissions, rate limiting, logging, audit trail, exceptions, tracing, background jobs, base repository/service classes
-- [backend/infrastructure](backend/infrastructure) — startup/shutdown wiring that attaches logging, Redis, background jobs, and email onto `app.state`
+- [backend/common](backend/common) — shared cross-cutting code: schemas, base repository/service classes, background jobs, bootstrap/exporters helpers
+- [backend/infrastructure](backend/infrastructure) — startup/shutdown wiring that attaches logging, Redis, background jobs, and email onto `app.state`; also the `PlatformRuntime` facade backing `/runtime` (`backend/infrastructure/runtime.py`)
 - [backend/integrations](backend/integrations) — adapters bridging the domain to external systems (currently: email)
-- [backend/platform](backend/platform) — the `PlatformRuntime` facade backing `/runtime`
+- [backend/core/security](backend/core/security) — auth dependencies, RBAC/role checks, and token issuance/rotation/revocation
+- [backend/resilience](backend/resilience) — rate limiting and the retry/circuit-breaker primitives
+- [backend/observability](backend/observability) — structured logging, audit trail, metrics, and tracing
 - [backend/contracts](backend/contracts) — API-facing contract definitions exposed through `backend/contracts/__init__.py`
 - [backend/utils](backend/utils) — the Redis client and small runtime helpers
-- [backend/services](backend/services) — a small runtime-service container (see note below)
 - [backend/scripts](backend/scripts) — local dev seed-data script
 - [tests](tests) — the automated test suite
 - [alembic](alembic) — migration environment and versions
 - [deployment](deployment) — per-environment `.env` templates
 
-> **Note:** a few of the packages above (`backend/services`, parts of `backend/contracts`, `backend/common/pagination.py`) overlap in purpose with other packages that are actually wired into the running app. If you're auditing this codebase before extending it, [DOCUMENTATION.md](DOCUMENTATION.md#appendix-a--corrections-from-the-original-documentation) has the details on which implementation is the one actually in use.
+> **Note:** `backend/platform/`, `backend/services/`, and `backend/common/pagination.py` do **not** exist in this codebase, despite being referenced in places elsewhere in this README/DOCUMENTATION.md history — `PlatformRuntime` actually lives in `backend/infrastructure/runtime.py`, and there is no separate pagination or runtime-service module. If you're auditing this codebase before extending it, see [`AUDIT_FINDINGS.md`](AUDIT_FINDINGS.md) for the verified, current state of every such claim, file-by-file, with corrected code.
 
 ## Quick start
 
@@ -415,7 +416,7 @@ All routes below live under `API_V1_STR` (default `/api/v1`) unless noted otherw
 | POST / GET / PUT / DELETE | `/api/v1/products/` \| `/{product_id}`                  | Product CRUD; writes require auth, list/read remain public, and list supports `search`, `skip`, `limit`, `sort`, `order` |
 | POST                      | `/api/v1/uploads/`                                      | Upload a file (auth required)                                                                                            |
 | GET                       | `/api/v1/admin/users`                                   | Admin-only user listing                                                                                                  |
-| GET                       | `/api/v1/admin/permissions`                             | Permission-policy example endpoint                                                                                       |
+| PATCH                     | `/api/v1/admin/users/{user_id}/role`                    | Admin-only role/permission change for a user, audit-logged with a before/after diff                                      |
 | GET                       | `/health`                                               | Liveness check                                                                                                           |
 | GET                       | `/health/ready`                                         | Readiness check (DB + Redis)                                                                                             |
 | GET                       | `/metrics`                                              | In-process request metrics snapshot                                                                                      |
@@ -460,6 +461,12 @@ The full walkthrough with the reasoning behind each step is in [DOCUMENTATION.md
 
 ## Testing
 
+Requires the `dev` extra (it pulls in `aiosqlite`, which the test suite's in-memory SQLite fixtures depend on but which isn't part of the base `requirements.txt`):
+
+```bash
+pip install -e .[dev]
+```
+
 Run the full suite with:
 
 ```bash
@@ -490,16 +497,13 @@ Before deploying beyond local development:
 
 ## Before you ship this: known limitations
 
-This is a boilerplate, and boilerplates get copied into real projects wholesale more often than they get read line-by-line first. So, as plainly as the features are listed above, here's what's currently incomplete or worth a deliberate decision before you rely on it:
+This is a boilerplate, and boilerplates get copied into real projects wholesale more often than they get read line-by-line first. An independent audit of this exact codebase (code read, migrations run, full test suite run, `ruff` run — not just documentation review) is in [`AUDIT_FINDINGS.md`](AUDIT_FINDINGS.md), with a companion [`SUGGESTED_IMPROVEMENTS.md`](SUGGESTED_IMPROVEMENTS.md). Headline results:
 
-- **The public surface is now intentionally narrow** — public registration and the public product catalog remain available, while product write operations and uploads now require authentication. Review any endpoint-specific access rules before exposing them beyond the current baseline.
-- **Public registration and role assignment need to be kept separate** — a self-registration endpoint should never let the caller choose their own role/permissions.
-- **Uploaded filenames need sanitizing** before being trusted for on-disk paths.
-- **Rate limiting and the audit log are in-process/in-memory** — fine for a single instance, not a real multi-worker/multi-replica guarantee. Back them with Redis/the database respectively if you scale horizontally.
-- **Tracing and metrics are lightweight by design** — the tracing hooks produce structured logs today, not a wired-up OpenTelemetry exporter pipeline, and `/metrics`/`/runtime` are process-local snapshots, not a Prometheus-scrape endpoint or cross-instance aggregate.
-- **A handful of packages overlap in purpose** (see the note in [Project structure](#project-structure)) — when in doubt about which implementation is "the real one," `backend/infrastructure/runtime.py` is the source of truth for what's attached to `app.state`.
-
-The full, detailed version of this list — with file/line references and suggested fixes — is in [DOCUMENTATION.md §11](DOCUMENTATION.md#11-known-limitations--security-notes-read-before-deploying).
+- **Most of the previously-known security gaps in this boilerplate are already fixed in the current code** — public registration already can't self-assign `role`/`permissions` (`UserCreate` forbids extra fields), uploaded filenames are already UUID-generated with path-traversal protection and per-owner access checks (no public static mount), login lockout and Socket.IO auth already avoid the enumeration/stale-token gaps an earlier revision of this doc warned about, and `/metrics`/`/runtime` already require an admin token. See `AUDIT_FINDINGS.md` §2–§3 for the full, verified list — don't re-fix these.
+- **What's still genuinely open today:** the test suite doesn't run out of the box (`aiosqlite` isn't declared as a dependency anywhere), `ruff check backend tests` currently fails with 24 lint errors (which would block the CI workflow's Lint step before tests even run), the `CircuitBreaker`/retry primitives in `backend/resilience/retry.py` exist but aren't wired into the SMTP transport, `BaseRepository.create()/update()` still accept a raw `dict` (a latent mass-assignment risk, not currently exploited by any caller), and the insecure-default guard in `backend/core/config.py` only fires for `environment=prod`, not `staging`. See `AUDIT_FINDINGS.md` §1 for the full list, and §4 for exact file-and-diff fixes for each.
+- **Rate limiting is Redis-backed outside of local dev**, with an in-memory fallback if Redis becomes unreachable (fails open to degraded limiting, not a full outage) — the only remaining single-process ceiling is in `dev` or during a Redis outage.
+- **Tracing and metrics are lightweight by design** — the tracing hooks produce structured logs today, not a wired-up OpenTelemetry exporter pipeline, and `/metrics`/`/runtime` are process-local snapshots (though they are admin-authenticated), not a Prometheus-scrape endpoint or cross-instance aggregate.
+- **`backend/platform/`, `backend/services/`, and `backend/common/pagination.py` don't exist** in this codebase — see the note in [Project structure](#project-structure) if you've seen those paths referenced elsewhere in this project's history.
 
 ## Roadmap
 

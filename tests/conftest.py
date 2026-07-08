@@ -20,7 +20,6 @@ from backend.observability.audit import audit_logger
 from backend.common.background_jobs import background_job_manager
 from backend.resilience.rate_limit import shared_rate_limiter
 from sqlalchemy import text
-from backend.core.config import settings
 from backend.database import session as db_session
 from backend.database.base import Base
 

@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
-from backend.common.schema import (
-    EmailVerificationConfirm,
-    EmailVerificationRequest,
-    PasswordResetConfirm,
-    PasswordResetRequest,
-    RefreshTokenRequest,
-)
+from pydantic import BaseModel
 
 
 class TokenResponse(BaseModel):

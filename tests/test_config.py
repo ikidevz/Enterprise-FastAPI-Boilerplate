@@ -23,6 +23,7 @@ def test_settings_resolve_secret_from_a_file_and_from_a_profile_env_file(
     monkeypatch.setenv("ENV_FILE", str(profile_env_file))
     monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
     monkeypatch.setenv("DATABASE_URL_FILE", "database_url.txt")
+    monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", "StrongTestAdminPw123!")
     monkeypatch.setenv("CORS_ORIGINS", "http://a.test,http://b.test")
 
     get_settings.cache_clear()
@@ -32,6 +33,22 @@ def test_settings_resolve_secret_from_a_file_and_from_a_profile_env_file(
         assert settings.database_url == "postgresql+asyncpg://staging:secret@localhost:5432/app"
         assert settings.secret_key == "from-profile"
         assert settings.cors_origins == ["http://a.test", "http://b.test"]
+    finally:
+        get_settings.cache_clear()
+
+
+def test_staging_profile_can_use_a_non_default_admin_password(monkeypatch) -> None:
+    """Staging settings should accept a supplied admin password without tripping the insecure-default guard."""
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+    monkeypatch.setenv("SECRET_KEY", "from-env")
+    monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", "StrongTestAdminPw123!")
+
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.environment == "staging"
+        assert settings.secret_key == "from-env"
+        assert settings.default_admin_password == "StrongTestAdminPw123!"
     finally:
         get_settings.cache_clear()
 

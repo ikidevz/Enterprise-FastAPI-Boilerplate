@@ -14,13 +14,16 @@ from backend.core.config import settings
 from backend.observability.audit import audit_logger
 from backend.core.security.dependencies import get_current_active_user, security, revocation_store
 from backend.web.exceptions import DomainError, UnauthorizedError, to_http_exception
-from backend.contracts.auth_contracts import (
-    DetailResponse,
+
+from backend.common.schema import (
     EmailVerificationConfirm,
     EmailVerificationRequest,
     PasswordResetConfirm,
     PasswordResetRequest,
     RefreshTokenRequest,
+)
+from backend.contracts.auth_contracts import (
+    DetailResponse,
     TokenResponse,
 )
 from backend.contracts.users_contracts import UserOut
