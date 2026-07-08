@@ -189,10 +189,17 @@ async def add_request_context(request: Request, call_next):
         # ------------------------------------------------------------------
         # Metrics (always recorded)
         # ------------------------------------------------------------------
+        route = request.scope.get("route")
+        path_template = (
+            route.path
+            if route is not None
+            else "unmatched"
+        )
+
         record_request_metrics(
             request.method,
             status_code,
-            request.url.path,
+            path_template,
         )
 
         reset_request_context(token)

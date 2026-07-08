@@ -57,12 +57,6 @@ class UserCreate(BaseModel):
         return _validate_password_strength(value)
 
 
-class AdminUserRoleUpdate(BaseModel):
-    """Admin-only: changes a target user's role/permissions."""
-    role: str | None = None
-    permissions: list[str] | None = None
-
-
 class UserUpdate(BaseModel):
     email: EmailStr | None = None
     username: str | None = Field(default=None, min_length=3)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import Query, APIRouter, Depends, Request, status
 
 from backend.domain.users.model import User
 from backend.domain.users.service import UserService
@@ -8,6 +8,7 @@ from backend.core.security.dependencies import get_current_active_user, get_user
 from backend.web.exceptions import DomainError, NotFoundError, to_http_exception, ForbiddenError
 from backend.core.security.rbac import require_role
 from backend.contracts.users_contracts import UserCreate, UserOut, UserUpdate
+from backend.integrations.email_adapter import EmailIntegrationAdapter
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -25,10 +26,12 @@ def _safe_changes(payload) -> dict:
 @router.get("/", response_model=list[UserOut])
 async def list_users(
     request: Request,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
     current_user: User = Depends(require_role("admin")),
     service: UserService = Depends(get_user_service),
 ) -> list[UserOut]:
-    users = await service.list()
+    users = await service.list(skip=skip, limit=limit)
 
     audit_logger.log(
         actor=current_user,
@@ -59,7 +62,8 @@ async def read_user(
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def create_user(request: Request, payload: UserCreate, service: UserService = Depends(get_user_service)) -> UserOut:
     try:
-        use_case = RegisterUserUseCase(service)
+        use_case = RegisterUserUseCase(
+            service, notification_port=EmailIntegrationAdapter())
         user = await use_case.execute(payload=payload)
         audit_logger.log(
             None,

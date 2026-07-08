@@ -70,3 +70,43 @@ async def retry_async(
     if last_error is not None:
         raise last_error
     raise RuntimeError("retry_async failed without an exception")
+
+
+def retry(
+    func: Callable[[], T],
+    *,
+    retries: int = 3,
+    delay: float = 0.25,
+    backoff: float = 2.0,
+    on_error: Callable[[Exception], None] | None = None,
+) -> T:
+    last_error: Exception | None = None
+    attempt_delay = delay
+
+    for attempt in range(retries + 1):
+        try:
+            return func()
+        except Exception as exc:
+            last_error = exc
+
+            if on_error is not None:
+                on_error(exc)
+
+            if attempt >= retries:
+                raise
+
+            logger.warning(
+                "retrying operation",
+                extra={
+                    "attempt": attempt + 1,
+                    "error": str(exc),
+                },
+            )
+
+            time.sleep(attempt_delay)
+            attempt_delay *= backoff
+
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError("retry failed without an exception")

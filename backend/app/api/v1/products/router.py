@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.application.products import CreateProductUseCase, UpdateProductUseCase
@@ -22,8 +22,8 @@ router = APIRouter(prefix="/products", tags=["products"])
 @router.get("/", response_model=list[ProductOut])
 async def list_products(
     search: str | None = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
     sort: str | None = None,
     order: Literal["asc", "desc"] = "asc",
     db: AsyncSession = Depends(get_db),

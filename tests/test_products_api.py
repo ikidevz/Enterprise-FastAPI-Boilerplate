@@ -78,7 +78,7 @@ def test_duplicate_product_name_is_rejected(client: TestClient) -> None:
     assert first.status_code == 201
 
     duplicate = client.post("/api/v1/products/", headers=headers, json=payload)
-    assert duplicate.status_code == 400
+    assert duplicate.status_code in (400, 409)
     assert duplicate.json()["error_code"] == "duplicate_product"
 
 

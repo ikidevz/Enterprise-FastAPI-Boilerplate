@@ -5,19 +5,6 @@ TestClient, and its "did anything leak between tests" safety net from here.
 If you're new to this codebase, start by reading this file end to end -
 everything else builds on top of it.
 
-Design notes for future maintainers:
-
-- Every test gets a brand-new, empty SQLite database (in memory). Nothing
-  is shared between tests, and nothing here ever talks to a real Postgres
-  or Redis instance - that's what makes the suite fast and safe to run
-  anywhere, including on a laptop with no services installed.
-- A handful of things in the app are process-wide singletons created once
-  at import time (the rate limiter, the background job queue, the
-  refresh/reset/verification token stores, the audit log). If a test
-  changes one of those and the next test doesn't get a clean copy, you get
-  "flaky" tests whose result depends on what ran before them - which is a
-  real bug that used to exist in this suite (see reset_shared_singletons
-  below, and the note in README.md in this directory).
 """
 from __future__ import annotations
 
@@ -73,16 +60,24 @@ def reset_shared_singletons() -> Iterator[None]:
     process-wide singleton to the app, add its reset here too.
     """
     shared_rate_limiter.reset()
-    audit_logger.clear()
+    _reset_audit_logger()
     _reset_background_job_manager()
     _reset_token_stores()
 
     yield
 
     shared_rate_limiter.reset()
-    audit_logger.clear()
+    _reset_audit_logger()
     _reset_background_job_manager()
     _reset_token_stores()
+
+
+def _reset_audit_logger() -> None:
+    """Reset the shared audit logger in a way that works with the current implementation."""
+    if hasattr(audit_logger, "clear"):
+        audit_logger.clear()
+    elif hasattr(audit_logger, "_persist_path"):
+        audit_logger._persist_path.write_text("", encoding="utf-8")
 
 
 def _reset_background_job_manager() -> None:

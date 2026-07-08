@@ -178,6 +178,11 @@ class Settings(BaseSettings):
         "OTEL_SERVICE_NAME", "otel_service_name"))
 
     refresh_token_expire_days: int = Field(default=7)
+    trusted_proxy_ips: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "TRUSTED_PROXY_IPS", "trusted_proxy_ips"),
+    )
 
     @field_validator("environment", "app_env")
     @classmethod
@@ -205,6 +210,11 @@ class Settings(BaseSettings):
                     pass
             return [item.strip() for item in value.split(",") if item.strip()]
         return [str(value)]
+
+    @field_validator("trusted_proxy_ips", mode="before")
+    @classmethod
+    def parse_trusted_proxy_ips(cls, value: Any) -> Any:
+        return _parse_string_list(value)
 
     @model_validator(mode="after")
     def _reject_insecure_prod_defaults(self) -> "Settings":
@@ -281,6 +291,9 @@ def get_settings() -> Settings:
     settings.secret_key = _read_secret_value(
         settings.secret_key, settings.secret_key_file) or settings.secret_key
     settings.cors_origins = _parse_string_list(settings.cors_origins)
+    settings.cors_origins = _parse_string_list(settings.cors_origins)
+    settings.trusted_proxy_ips = _parse_string_list(
+        settings.trusted_proxy_ips)
     return settings
 
 

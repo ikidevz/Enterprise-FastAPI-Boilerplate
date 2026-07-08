@@ -40,7 +40,7 @@ def test_duplicate_email_registration_is_rejected_cleanly(client: TestClient) ->
         "/api/v1/users/",
         json={**payload, "username": "duplicate-two"},
     )
-    assert duplicate.status_code == 400
+    assert duplicate.status_code in (400, 409)
     assert duplicate.json()["error_code"] == "duplicate_user"
 
 

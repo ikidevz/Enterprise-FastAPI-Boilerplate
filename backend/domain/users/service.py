@@ -16,6 +16,10 @@ from backend.domain.users.model import User
 from backend.domain.users.repository import UserRepository
 from backend.common.base_service import BaseService
 from backend.common.schema import UserCreate, UserOut, UserUpdate
+from backend.core.security.token_store import TokenStore
+
+_session_revocation_store = TokenStore()
+_DUMMY_HASH = None
 
 
 class UserService(BaseService[User, UserCreate, UserUpdate]):
@@ -65,6 +69,23 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
         )
         return await self.repository.create(user)
 
+    async def update(self, db_obj: User, obj_in: UserUpdate) -> User:
+        update_data = obj_in.model_dump(exclude_unset=True)
+
+        new_password = update_data.pop("password", None)
+        if new_password:
+            db_obj.hashed_password = self.hash_password(new_password)
+            await _session_revocation_store.revoke_all_for_user(db_obj.id)
+
+        for field, value in update_data.items():
+            setattr(db_obj, field, value)
+
+        db_obj.updated_at = datetime.now(timezone.utc)
+        self.repository.db.add(db_obj)
+        await self.repository.db.flush()
+        await self.repository.db.refresh(db_obj)
+        return db_obj
+
     @staticmethod
     def _normalize_datetime(value: datetime | None) -> datetime | None:
         if value is None:
@@ -75,7 +96,13 @@ class UserService(BaseService[User, UserCreate, UserUpdate]):
 
     async def authenticate(self, email: str, password: str) -> User | None:
         user = await self.repository.get_by_email(email)
+
         if not user:
+            global _DUMMY_HASH
+            if _DUMMY_HASH is None:
+                _DUMMY_HASH = self.hash_password(
+                    "not-a-real-password-used-only-for-timing")
+            self.verify_password(password, _DUMMY_HASH)
             return None
 
         now = datetime.now(timezone.utc)

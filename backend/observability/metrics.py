@@ -20,6 +20,10 @@ class MetricsCollector:
             self.methods[method.upper()] += 1
             self.paths[path] += 1
 
+    def record_rate_limiter_fallback(self) -> None:
+        with self._lock:
+            self.rate_limiter_fallbacks += 1
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -42,6 +46,10 @@ metrics_collector = MetricsCollector()
 
 def record_request_metrics(method: str, status_code: int, path: str) -> None:
     metrics_collector.record(method, status_code, path)
+
+
+def record_rate_limiter_fallback() -> None:
+    metrics_collector.record_rate_limiter_fallback()
 
 
 def get_metrics_snapshot() -> dict[str, Any]:

@@ -150,3 +150,28 @@ class TokenStore:
             return
         user_id = int(value)
         await self._set(token, self._used_token_value(user_id), 60)
+
+    def _access_index_key(self, user_id: int) -> str:
+        return f"{self.prefix}:access-by-user:{user_id}"
+
+    async def track_access_token(self, user_id: int, jti: str, ttl_seconds: int) -> None:
+        key = self._access_index_key(user_id)
+        try:
+            await redis_client.sadd(key, jti)
+            await redis_client.expire(key, ttl_seconds)
+        except Exception as exc:
+            logger.warning("token_store_redis_unavailable",
+                           extra={"operation": "track_access_token", "error": str(exc)})
+            if settings.environment == "dev":
+                self._memory_store.setdefault(key, set()).add(jti)
+            else:
+                raise TokenStoreUnavailableError("Redis unavailable")
+
+    async def revoke_all_access_tokens_for_user(self, user_id: int) -> None:
+        key = self._access_index_key(user_id)
+        try:
+            jtis = await redis_client.smembers(key)
+        except Exception:
+            jtis = self._memory_store.get(key, set())
+        for jti in jtis:
+            await self.revoke_jti(jti)

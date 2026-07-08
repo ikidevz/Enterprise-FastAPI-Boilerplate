@@ -16,7 +16,12 @@ class ApplicationError(DomainError):
     """Base class for application-layer errors."""
 
 
-class DuplicateResourceError(DomainError):
+class ConflictError(DomainError):
+    def __init__(self, message: str, *, error_code: str = "conflict") -> None:
+        super().__init__(message, error_code=error_code)
+
+
+class DuplicateResourceError(ConflictError):
     def __init__(self, resource: str, *, message: str | None = None) -> None:
         detail = message or f"{resource} already exists"
         super().__init__(detail, error_code=f"duplicate_{resource}")
@@ -42,11 +47,6 @@ class ForbiddenError(DomainError):
 
 class ValidationError(DomainError):
     def __init__(self, message: str, *, error_code: str = "validation_error") -> None:
-        super().__init__(message, error_code=error_code)
-
-
-class ConflictError(DomainError):
-    def __init__(self, message: str, *, error_code: str = "conflict") -> None:
         super().__init__(message, error_code=error_code)
 
 

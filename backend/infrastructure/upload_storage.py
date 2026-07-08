@@ -8,7 +8,13 @@ from backend.core.config import settings
 
 
 class UploadStorage:
-    async def save(self, file_bytes: bytes, original_filename: str) -> dict[str, str]:
+    async def save(
+        self,
+        file_bytes: bytes,
+        original_filename: str,
+        *,
+        content_type: str | None = None,
+    ) -> dict[str, str]:
         raise NotImplementedError
 
 
@@ -17,7 +23,13 @@ class LocalUploadStorage(UploadStorage):
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
-    async def save(self, contents: bytes, original_filename: str) -> dict[str, str]:
+    async def save(
+        self,
+        contents: bytes,
+        original_filename: str,
+        *,
+        content_type: str | None = None,
+    ) -> dict[str, str]:
         suffix = Path(original_filename).suffix
         stored_name = f"{uuid4().hex}{suffix}"
         destination = (self.upload_dir / stored_name).resolve()
@@ -29,6 +41,7 @@ class LocalUploadStorage(UploadStorage):
             "filename": original_filename,
             "stored_as": stored_name,
             "stored_path": f"/api/v1/uploads/{stored_name}",
+            "content_type": content_type or "application/octet-stream",
         }
 
 
@@ -45,7 +58,13 @@ class S3UploadStorage(UploadStorage):
             endpoint_url=endpoint_url,
         )
 
-    async def save(self, file_bytes: bytes, original_filename: str) -> dict[str, str]:
+    async def save(
+        self,
+        file_bytes: bytes,
+        original_filename: str,
+        *,
+        content_type: str | None = None,
+    ) -> dict[str, str]:
         from uuid import uuid4
 
         safe_name = Path(original_filename).name
@@ -63,6 +82,7 @@ class S3UploadStorage(UploadStorage):
             "filename": safe_name,
             "stored_as": stored_name,
             "stored_path": f"s3://{self.bucket}/{stored_name}",
+            "content_type": content_type or "application/octet-stream",
         }
 
 
@@ -75,7 +95,13 @@ class AzureBlobUploadStorage(UploadStorage):
             connection_string)
         self.container_client = self.client.get_container_client(container)
 
-    async def save(self, file_bytes: bytes, original_filename: str) -> dict[str, str]:
+    async def save(
+        self,
+        file_bytes: bytes,
+        original_filename: str,
+        *,
+        content_type: str | None = None,
+    ) -> dict[str, str]:
         from uuid import uuid4
 
         safe_name = Path(original_filename).name
@@ -90,4 +116,5 @@ class AzureBlobUploadStorage(UploadStorage):
             "filename": safe_name,
             "stored_as": stored_name,
             "stored_path": f"azure://{self.container}/{stored_name}",
+            "content_type": content_type or "application/octet-stream",
         }

@@ -3,6 +3,7 @@ from threading import Lock
 from time import time
 
 from backend.observability.logging import logger
+from backend.observability.metrics import record_rate_limiter_fallback
 
 
 class RateLimiter:
@@ -38,6 +39,7 @@ shared_rate_limiter = RateLimiter()
 class RedisRateLimiter:
     def __init__(self, redis_client) -> None:
         self.redis = redis_client
+        self._fallback = RateLimiter()
 
     async def allow_request(self, client_id: str, path: str, *, limit: int, window_seconds: int = 60) -> bool:
         key = f"ratelimit:{client_id}:{path}"
@@ -51,9 +53,7 @@ class RedisRateLimiter:
             _, _, count, _ = await pipe.execute()
             return count <= limit
         except Exception as exc:
-
-            logger.error(
-                "rate_limiter_bypassed_due_to_backend_outage",
-                extra={"operation": "allow_request", "error": str(exc)},
-            )
-            return True
+            logger.error("rate_limiter_redis_outage_fallback_engaged",
+                         extra={"operation": "allow_request", "error": str(exc)})
+            record_rate_limiter_fallback()
+            return await self._fallback.allow_request(client_id, path, limit=limit)
