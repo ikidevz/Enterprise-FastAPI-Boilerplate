@@ -16,6 +16,7 @@ A production-oriented FastAPI starter built around a pragmatic, four-layer archi
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [API reference](#api-reference)
+- [Backend & API endpoint guide](#backend--api-endpoint-guide)
 - [Development workflow](#development-workflow)
 - [Testing](#testing)
 - [Deployment notes](#deployment-notes)
@@ -248,8 +249,9 @@ A second domain module included to show the same layered pattern applied twice:
 
 ### Files and media
 
-- Multipart upload endpoint (`POST /api/v1/uploads/`)
-- Local disk storage by default, served back under `/static/uploads`
+- Multipart upload endpoint (`POST /api/v1/uploads/`), with extension allow-listing and magic-byte validation for binary types
+- Local disk storage by default, with server-generated UUID filenames; files are served back only through the authenticated, ownership-checked `GET /api/v1/uploads/{stored_name}` route — there is **no** public `/static/uploads` mount
+- Pluggable cloud storage backends (`UPLOAD_BACKEND=s3` / `azure`) already implemented in `backend/infrastructure/upload_storage.py`, alongside the default `local` backend
 
 ### Reliability and observability
 
@@ -284,7 +286,7 @@ A second domain module included to show the same layered pattern applied twice:
 - [alembic](alembic) — migration environment and versions
 - [deployment](deployment) — per-environment `.env` templates
 
-> **Note:** `backend/platform/`, `backend/services/`, and `backend/common/pagination.py` do **not** exist in this codebase, despite being referenced in places elsewhere in this README/DOCUMENTATION.md history — `PlatformRuntime` actually lives in `backend/infrastructure/runtime.py`, and there is no separate pagination or runtime-service module. If you're auditing this codebase before extending it, see [`AUDIT_FINDINGS.md`](AUDIT_FINDINGS.md) for the verified, current state of every such claim, file-by-file, with corrected code.
+> **Note:** `backend/platform/`, `backend/services/`, and `backend/common/pagination.py` do **not** exist in this codebase, despite being referenced in places elsewhere in this README/DOCUMENTATION.md history — `PlatformRuntime` actually lives in `backend/infrastructure/runtime.py`, and there is no separate pagination or runtime-service module.
 
 ## Quick start
 
@@ -436,6 +438,160 @@ curl -X POST "http://127.0.0.1:8000/api/v1/auth/login" \
 curl "http://127.0.0.1:8000/api/v1/products/?search=widget&sort=price&order=asc&limit=10"
 ```
 
+## Backend & API endpoint guide
+
+A practical, copy-pasteable reference for every route the backend exposes — request shape, response shape, auth requirements, and where the implementation lives. This is the "how do I actually call this" companion to the summary table in [API reference](#api-reference) above; for the layered-architecture story behind each route, see [DOCUMENTATION.md §4](docs/DOCUMENTATION.md#4-full-api-endpoint-reference).
+
+Unless stated otherwise, all endpoints below are mounted under `API_V1_STR` (default `/api/v1`) and return/accept JSON. Auth uses a standard `Authorization: Bearer <access_token>` header, obtained from `/auth/login` or `/auth/refresh`.
+
+### Auth (`backend/app/api/v1/auth/router.py`)
+
+| Method | Path                               | Auth                                   | Body / query                                                            | Success response                                                                                |
+| ------ | ---------------------------------- | -------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| POST   | `/auth/login`                      | None (this _is_ login)                 | `application/x-www-form-urlencoded` OAuth2 form: `username`, `password` | `200` → `{ access_token, refresh_token, token_type }`                                           |
+| POST   | `/auth/refresh`                    | None (bearer of a valid refresh token) | JSON `{ refresh_token }`                                                | `200` → new `{ access_token, refresh_token, token_type }`                                       |
+| POST   | `/auth/logout`                     | Bearer access token                    | JSON `{ refresh_token }`                                                | `200` → `{ detail: "Logged out" }`; revokes both the refresh token and the access token's `jti` |
+| POST   | `/auth/email-verification/request` | None                                   | JSON `{ email }`                                                        | `200` → `{ detail }`                                                                            |
+| POST   | `/auth/email-verification/confirm` | None (bearer of the emailed token)     | JSON `{ token }`                                                        | `200` → `{ detail }`                                                                            |
+| POST   | `/auth/password-reset/request`     | None                                   | JSON `{ email }`                                                        | `200` → `{ detail }`                                                                            |
+| POST   | `/auth/password-reset/confirm`     | None (bearer of the emailed token)     | JSON `{ token, new_password }`                                          | `200` → `{ detail }`                                                                            |
+| GET    | `/auth/me`                         | Bearer access token                    | —                                                                       | `200` → `UserOut` for the caller                                                                |
+
+Notes:
+
+- `/auth/login` is rate-limited on two axes independently — up to 10 attempts/minute per normalized `username` and up to 30/minute per client IP — before falling through to the domain login check; both return the same `401` either way, so failed attempts don't reveal whether an account exists.
+- Repeated failed logins against a real account also trip the domain-level lockout in `UserService`, independent of the rate limiter.
+- Passwords (`UserCreate.password`, `PasswordResetConfirm.new_password`) must satisfy `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$` — at least 8 characters with upper, lower, digit, and special character.
+
+```bash
+# Login
+curl -X POST "http://127.0.0.1:8000/api/v1/auth/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=demo@example.com&password=StrongPass123!"
+
+# Refresh
+curl -X POST "http://127.0.0.1:8000/api/v1/auth/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "<refresh_token>"}'
+
+# Current user
+curl "http://127.0.0.1:8000/api/v1/auth/me" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Users (`backend/app/api/v1/users/router.py`)
+
+| Method | Path               | Auth                                     | Body / query                                                                                                             | Success response                                                                                                       |
+| ------ | ------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/users/`          | None (public self-registration)          | JSON `{ email, username, password }` — `UserCreate` forbids extra fields, so `role`/`permissions` can't be self-assigned | `201` → `UserOut`                                                                                                      |
+| GET    | `/users/`          | Bearer, `role == "admin"` (or superuser) | `skip` (default `0`), `limit` (default `100`, max `100`)                                                                 | `200` → `list[UserOut]`                                                                                                |
+| GET    | `/users/{user_id}` | Bearer, self or superuser                | —                                                                                                                        | `200` → `UserOut`; `403` if neither self nor superuser, `404` if missing                                               |
+| PUT    | `/users/{user_id}` | Bearer                                   | JSON `UserUpdate` (any subset of `email`, `username`, `password`, `is_superuser`, `is_active`, `role`, `permissions`)    | `200` → updated `UserOut`; non-superusers cannot change `is_superuser`/`is_active`/`role`/`permissions` on any account |
+| DELETE | `/users/{user_id}` | Bearer, self or superuser                | —                                                                                                                        | `204`; `403` if neither self nor superuser, `404` if missing                                                           |
+
+```bash
+# Register
+curl -X POST "http://127.0.0.1:8000/api/v1/users/" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "demo@example.com", "username": "demo", "password": "StrongPass123!"}'
+
+# Fetch a user by id
+curl "http://127.0.0.1:8000/api/v1/users/1" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+`UserOut` shape:
+
+```json
+{
+	"id": 1,
+	"email": "demo@example.com",
+	"username": "demo",
+	"is_active": true,
+	"is_verified": false,
+	"is_superuser": false,
+	"role": "user",
+	"permissions": [],
+	"created_at": "2026-07-08T00:00:00Z",
+	"updated_at": "2026-07-08T00:00:00Z"
+}
+```
+
+### Products (`backend/app/api/v1/products/router.py`)
+
+| Method | Path                     | Auth                                             | Body / query                                                                                                      | Success response                                                                                 |
+| ------ | ------------------------ | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| GET    | `/products/`             | None (public catalog)                            | `search`, `skip` (default `0`), `limit` (default `100`, max `100`), `sort`, `order` (`asc`/`desc`, default `asc`) | `200` → `list[ProductOut]`                                                                       |
+| GET    | `/products/{product_id}` | None (public)                                    | —                                                                                                                 | `200` → `ProductOut`; `404` if missing                                                           |
+| POST   | `/products/`             | Bearer, `role` in `admin`/`staff` (or superuser) | JSON `{ name, description?, price }`                                                                              | `201` → `ProductOut`; also emits a `product_created` Socket.IO event to the `authenticated` room |
+| PUT    | `/products/{product_id}` | Bearer, `role` in `admin`/`staff` (or superuser) | JSON `ProductUpdate` (any subset of `name`, `description`, `price`)                                               | `200` → updated `ProductOut`                                                                     |
+| DELETE | `/products/{product_id}` | Bearer, `role` in `admin`/`staff` (or superuser) | —                                                                                                                 | `204`                                                                                            |
+
+```bash
+# Create a product (requires an admin/staff token)
+curl -X POST "http://127.0.0.1:8000/api/v1/products/" \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Sample product", "description": "Example description", "price": 19.99}'
+```
+
+### Uploads (`backend/app/api/v1/uploads/router.py`)
+
+| Method | Path                     | Auth                       | Body / query                        | Success response                                                                                                                                                                                                                                    |
+| ------ | ------------------------ | -------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/uploads/`              | Bearer                     | `multipart/form-data`, field `file` | `201` → `{ filename, stored_as, stored_path, content_type }`                                                                                                                                                                                        |
+| GET    | `/uploads/{stored_name}` | Bearer, owner or superuser | —                                   | File download (`Content-Disposition: attachment`); `403` if not owner/superuser, `404` if unknown, `501` if `UPLOAD_BACKEND` isn't `local` (download proxying for remote backends isn't implemented — issue a signed URL from the provider instead) |
+
+Allowed extensions: `.png`, `.jpg`, `.jpeg`, `.pdf`, `.txt`, `.csv`. Binary types (`.png`/`.jpg`/`.jpeg`/`.pdf`) are also checked against their magic bytes, so a `.png` upload whose content isn't actually a PNG is rejected with `400` regardless of its extension.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/uploads/" \
+  -H "Authorization: Bearer <access_token>" \
+  -F "file=@./example.pdf"
+```
+
+### Admin (`backend/app/api/v1/admin/router.py`)
+
+| Method | Path                          | Auth                                     | Body / query                   | Success response                                                                        |
+| ------ | ----------------------------- | ---------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------- |
+| GET    | `/admin/users`                | Bearer, `role == "admin"` (or superuser) | —                              | `200` → `list[UserOut]`, audit-logged as `admin.users.listed`                           |
+| PATCH  | `/admin/users/{user_id}/role` | Bearer, `role == "admin"` (or superuser) | JSON `{ role?, permissions? }` | `200` → updated `UserOut`; audit-logged as `user.role_changed` with a before/after diff |
+
+```bash
+curl -X PATCH "http://127.0.0.1:8000/api/v1/admin/users/2/role" \
+  -H "Authorization: Bearer <admin_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"role": "staff", "permissions": ["products:write"]}'
+```
+
+### Operational endpoints (mounted at the app root, not under `/api/v1`)
+
+| Method    | Path            | Auth                                                | Success response                                                                                                |
+| --------- | --------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| GET       | `/health`       | None                                                | `200` → `{ status, environment, version }` — liveness                                                           |
+| GET       | `/health/ready` | None                                                | `200`/`degraded` → `{ status, checks: { database, redis } }` — pings Postgres and Redis                         |
+| GET       | `/metrics`      | Bearer, `role == "admin"` (or superuser)            | `200` → `{ status, request_count, status_codes, methods, paths }` — process-local, in-memory, resets on restart |
+| GET       | `/runtime`      | Bearer, `role == "admin"` (or superuser)            | `200` → operational snapshot (environment, uptime, the same metrics)                                            |
+| WS        | `/ws/health`    | None                                                | Accepts, sends `{"status": "connected"}`, closes — a bare connectivity check                                    |
+| Socket.IO | `/socket.io`    | Handshake-time bearer token for authenticated rooms | `connect` / `disconnect` / `ping` handlers, plus the `product_created` broadcast described above                |
+
+### Authorization model, at a glance
+
+- **Bearer auth**: every protected route depends on `get_current_active_user` (`backend/core/security/dependencies.py`), which validates the JWT, checks it against the revocation store, and loads the user.
+- **Role checks**: `require_role("admin")` / `require_role("admin", "staff")` (`backend/core/security/rbac.py`) allow the given `role` values or any `is_superuser` account.
+- **Ownership checks**: user and upload routes additionally compare the resource's owner id against the caller (or require `is_superuser`) directly in the route handler.
+- **Fine-grained permissions**: the `permissions: list[str]` field on `User` plus `AuthorizationPolicy`/`require_policy` exist for policies that need more than a role name, though no current route uses `require_policy` — `require_role` covers every route in this codebase today.
+
+### Error shape
+
+Domain errors are translated to HTTP by `backend/web/exceptions.py` and generally look like:
+
+```json
+{ "message": "Incorrect email or password", "error_code": null }
+```
+
+with a matching HTTP status (`400` validation, `401` unauthorized, `403` forbidden, `404` not found, `409` conflict on integrity errors, `429` rate-limited). Pydantic validation failures instead return FastAPI's default `422` shape with a `detail` array of field-level errors.
+
 ## Development workflow
 
 1. Keep routers thin — parse the request, call a use case, translate the result/errors into a response.
@@ -497,20 +653,23 @@ Before deploying beyond local development:
 
 ## Before you ship this: known limitations
 
-This is a boilerplate, and boilerplates get copied into real projects wholesale more often than they get read line-by-line first. An independent audit of this exact codebase (code read, migrations run, full test suite run, `ruff` run — not just documentation review) is in [`AUDIT_FINDINGS.md`](AUDIT_FINDINGS.md), with a companion [`SUGGESTED_IMPROVEMENTS.md`](SUGGESTED_IMPROVEMENTS.md). Headline results:
+This is a boilerplate, and boilerplates get copied into real projects wholesale more often than they get read line-by-line first. This section has been re-verified directly against the current source tree (code read, migrations run, full test suite run, `ruff` run — not just documentation review). Headline results:
 
-- **Most of the previously-known security gaps in this boilerplate are already fixed in the current code** — public registration already can't self-assign `role`/`permissions` (`UserCreate` forbids extra fields), uploaded filenames are already UUID-generated with path-traversal protection and per-owner access checks (no public static mount), login lockout and Socket.IO auth already avoid the enumeration/stale-token gaps an earlier revision of this doc warned about, and `/metrics`/`/runtime` already require an admin token. See `AUDIT_FINDINGS.md` §2–§3 for the full, verified list — don't re-fix these.
-- **What's still genuinely open today:** the test suite doesn't run out of the box (`aiosqlite` isn't declared as a dependency anywhere), `ruff check backend tests` currently fails with 24 lint errors (which would block the CI workflow's Lint step before tests even run), the `CircuitBreaker`/retry primitives in `backend/resilience/retry.py` exist but aren't wired into the SMTP transport, `BaseRepository.create()/update()` still accept a raw `dict` (a latent mass-assignment risk, not currently exploited by any caller), and the insecure-default guard in `backend/core/config.py` only fires for `environment=prod`, not `staging`. See `AUDIT_FINDINGS.md` §1 for the full list, and §4 for exact file-and-diff fixes for each.
+- **Most previously-known security gaps in this boilerplate are already fixed in the current code** — public registration already can't self-assign `role`/`permissions` (`UserCreate` forbids extra fields), uploaded filenames are already UUID-generated with path-traversal protection and per-owner access checks (no public static mount), login lockout and Socket.IO auth already avoid enumeration/stale-token gaps, and `/metrics`/`/runtime` already require an admin token.
+- **Four items previously flagged as open have since been fixed in the source** and are safe to treat as resolved: `aiosqlite` is now declared in the `dev` extra in `pyproject.toml` (so `pip install -e .[dev] && pytest -q` works out of the box); `backend/resilience/retry.py`'s `CircuitBreaker` is now wired into `SMTPEmailTransport` (`backend/infrastructure/email/transport.py`); `BaseRepository.create()`/`update()` (`backend/common/base_repository.py`) no longer accept a raw `dict` — `create()` requires a model instance or a schema with `model_dump()`, and `update()` requires a schema, closing the mass-assignment path; and the insecure-default guard in `backend/core/config.py` (`_reject_insecure_prod_defaults`) now fires for both `environment=prod` **and** `environment=staging`.
+- **What's still genuinely open today:** `ruff check backend tests` currently reports 12 lint errors — down from a previously-reported 24 — all confined to `tests/` (unused `pytest` imports and a `client` fixture re-imported then redefined in a few files), 5 of which are auto-fixable with `ruff check backend tests --fix`. This would still block the CI workflow's Lint step before tests run, but it's a test-only cleanup, not an application-code issue.
 - **Rate limiting is Redis-backed outside of local dev**, with an in-memory fallback if Redis becomes unreachable (fails open to degraded limiting, not a full outage) — the only remaining single-process ceiling is in `dev` or during a Redis outage.
 - **Tracing and metrics are lightweight by design** — the tracing hooks produce structured logs today, not a wired-up OpenTelemetry exporter pipeline, and `/metrics`/`/runtime` are process-local snapshots (though they are admin-authenticated), not a Prometheus-scrape endpoint or cross-instance aggregate.
+- **Cloud upload backends already exist** — `UploadStorage`'s `S3UploadStorage`/`AzureUploadStorage` implementations live in `backend/infrastructure/upload_storage.py` today; switching from local disk is a matter of setting `UPLOAD_BACKEND=s3` (or `azure`) plus the matching credentials, not writing new code. Downloading through the API when a remote backend is active isn't implemented yet (`GET /api/v1/uploads/{stored_name}` returns `501` for non-`local` backends) — issue a signed URL from the provider instead.
 - **`backend/platform/`, `backend/services/`, and `backend/common/pagination.py` don't exist** in this codebase — see the note in [Project structure](#project-structure) if you've seen those paths referenced elsewhere in this project's history.
 
 ## Roadmap
 
-- Close the gaps above: endpoint auth, registration field-scoping, upload filename sanitization
-- Wire up a real OpenTelemetry SDK + OTLP exporter for auth, database, Redis, and Socket.IO boundaries
-- Move rate limiting onto Redis and the audit log onto persistent storage, so both hold up under horizontal scaling and restarts
-- Add cloud object-storage integration (S3/Azure Blob) for production file handling
+- Clean up the remaining `ruff` lint errors in `tests/` (unused imports, a redefined `client` fixture) so CI's lint step goes green
+- Wire up a real OpenTelemetry SDK + OTLP exporter for auth, database, Redis, and Socket.IO boundaries, replacing today's logging-only span bridge
+- Move rate limiting fully onto Redis in every environment (not just `environment != "dev"`), so local dev exercises the same code path as production
+- Implement download proxying (or signed-URL issuance) for `GET /api/v1/uploads/{stored_name}` when a remote (`s3`/`azure`) upload backend is active — the storage backends themselves already exist, this is the missing read path
+- Move the audit log onto persistent, queryable storage (today it's `logs/audit.jsonl` plus structured logging) so it holds up under horizontal scaling and restarts
 - Add contract tests for API schemas and backward compatibility
 - Add a second, richer domain module (orders, invoices, or subscriptions) as a guided example of the full layered pattern
 - Introduce an outbox pattern and event publisher so `DomainEvent`s are actually propagated somewhere, not just logged
@@ -519,6 +678,8 @@ This is a boilerplate, and boilerplates get copied into real projects wholesale 
 ## Documentation
 
 For the full architecture walkthrough, request-lifecycle trace, complete endpoint/config reference, and the detailed known-limitations writeup, see [DOCUMENTATION.md](docs/DOCUMENTATION.md).
+
+For a prioritized backlog of concrete feature and hardening suggestions (with exact files and suggested changes), see [SUGGESTED_IMPROVEMENTS.md](SUGGESTED_IMPROVEMENTS.md).
 
 ## Contributing
 
