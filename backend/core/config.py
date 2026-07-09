@@ -105,6 +105,22 @@ class Settings(BaseSettings):
                                     "http://localhost:3000", "http://localhost:5173"])
     enable_rate_limiting: bool = Field(default=True)
     rate_limit_requests_per_minute: int = Field(default=120)
+    subscriptions_enabled: bool = Field(default=False, validation_alias=AliasChoices(
+        "SUBSCRIPTIONS_ENABLED", "subscriptions_enabled"))
+    disabled_features: List[str] = Field(default_factory=list, validation_alias=AliasChoices(
+        "DISABLED_FEATURES", "disabled_features"))
+    payment_providers_enabled: List[str] = Field(default_factory=list, validation_alias=AliasChoices(
+        "PAYMENT_PROVIDERS_ENABLED", "payment_providers_enabled"))
+    stripe_secret_key: str | None = Field(default=None, validation_alias=AliasChoices(
+        "STRIPE_SECRET_KEY", "stripe_secret_key"))
+    stripe_webhook_secret: str | None = Field(default=None, validation_alias=AliasChoices(
+        "STRIPE_WEBHOOK_SECRET", "stripe_webhook_secret"))
+    paypal_client_id: str | None = Field(default=None, validation_alias=AliasChoices(
+        "PAYPAL_CLIENT_ID", "paypal_client_id"))
+    paypal_client_secret: str | None = Field(default=None, validation_alias=AliasChoices(
+        "PAYPAL_CLIENT_SECRET", "paypal_client_secret"))
+    paypal_webhook_id: str | None = Field(default=None, validation_alias=AliasChoices(
+        "PAYPAL_WEBHOOK_ID", "paypal_webhook_id"))
     request_id_header: str = Field(default="x-request-id")
     max_request_size_bytes: int = Field(default=2 * 1024 * 1024)
     require_email_verification: bool = Field(default=False)
@@ -224,6 +240,11 @@ class Settings(BaseSettings):
     @field_validator("trusted_proxy_ips", mode="before")
     @classmethod
     def parse_trusted_proxy_ips(cls, value: Any) -> Any:
+        return _parse_string_list(value)
+
+    @field_validator("disabled_features", mode="before")
+    @classmethod
+    def parse_disabled_features(cls, value: Any) -> Any:
         return _parse_string_list(value)
 
     @model_validator(mode="after")

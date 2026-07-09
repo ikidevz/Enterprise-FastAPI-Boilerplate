@@ -35,3 +35,39 @@ def test_migrated_schema_has_every_column_the_orm_model_declares() -> None:
         assert model_columns <= columns, f"Migration is missing: {model_columns - columns}"
 
     asyncio.run(check())
+
+
+def test_alembic_head_creates_rbac_and_billing_tables(tmp_path) -> None:
+    """Ensures the Alembic head includes the new RBAC and billing schema."""
+    import sqlite3
+
+    db_path = tmp_path / "rbac_billing_schema.db"
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-x",
+            f"sqlalchemy.url=sqlite:///{db_path}", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    with sqlite3.connect(db_path) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+
+    expected = {
+        "roles",
+        "permissions",
+        "role_permissions",
+        "user_roles",
+        "plans",
+        "features",
+        "plan_features",
+        "subscriptions",
+        "payment_events",
+    }
+    missing = expected - tables
+    assert not missing, f"Migration is missing tables: {sorted(missing)}"

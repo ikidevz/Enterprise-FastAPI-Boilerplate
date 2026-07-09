@@ -1,10 +1,12 @@
 from fastapi import Header, HTTPException, Query, APIRouter, Depends, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.users.model import User
 from backend.domain.users.service import UserService
 from backend.application.users import RegisterUserUseCase, UpdateUserUseCase
 from backend.observability.audit import audit_logger
-from backend.core.security.dependencies import get_current_active_user, get_user_service
+from backend.core.security.dependencies import get_current_active_user, get_db, get_user_service
 from backend.web.exceptions import DomainError, NotFoundError, to_http_exception, ForbiddenError
 from backend.core.security.rbac import require_role
 from backend.contracts.users_contracts import UserCreate, UserOut, UserUpdate
@@ -12,6 +14,7 @@ from backend.integrations.email_adapter import EmailIntegrationAdapter
 from backend.common.schema import PaginatedResponse, PaginationMeta
 from backend.resilience.idempotency import get_idempotency_store
 from backend.resilience.rate_limit import get_rate_limiter
+from backend.domain.billing.models import Subscription
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -69,6 +72,36 @@ async def read_user(
         raise to_http_exception(ForbiddenError(
             "Not authorized to view this user"))
     return service.to_public(user)
+
+
+@router.get("/me/export")
+async def export_user_data(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    subscriptions_result = await db.execute(
+        select(Subscription)
+        .where(Subscription.user_id == current_user.id)
+        .order_by(Subscription.id.desc())
+    )
+    subscriptions = [
+        {
+            "id": subscription.id,
+            "plan_id": subscription.plan_id,
+            "status": subscription.status,
+            "provider": subscription.provider,
+        }
+        for subscription in subscriptions_result.scalars().all()
+    ]
+    return {
+        "user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "username": current_user.username,
+            "role": current_user.role,
+        },
+        "subscriptions": subscriptions,
+    }
 
 
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
