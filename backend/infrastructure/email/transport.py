@@ -96,5 +96,30 @@ class EmailDeliveryService:
             ),
         )
 
+    def send_billing_event_email(self, *, to: str, event_type: str, plan_name: str | None = None) -> None:
+        subject_map = {
+            "subscription_assigned": "Your billing plan is now active",
+            "plan_changed": "Your billing plan has been updated",
+            "payment_failed": "We need to update your billing details",
+        }
+        body_map = {
+            "subscription_assigned": (
+                "Your subscription is active and ready to use."
+                + (f" Plan: {plan_name}." if plan_name else "")
+            ),
+            "plan_changed": (
+                "Your billing plan has been updated."
+                + (f" New plan: {plan_name}." if plan_name else "")
+            ),
+            "payment_failed": (
+                "We could not process your most recent payment."
+                + (f" Plan: {plan_name}." if plan_name else "")
+            ),
+        }
+        subject = subject_map.get(event_type, "Billing update")
+        body = body_map.get(
+            event_type, f"A billing update is available for your account. Plan: {plan_name or 'your current plan'}.")
+        self.transport.send(to=to, subject=subject, body=body)
+
 
 email_delivery_service = EmailDeliveryService()

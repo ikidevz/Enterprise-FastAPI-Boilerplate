@@ -58,6 +58,50 @@ class Subscription(Base):
         String(50), default="active", nullable=False)
     provider: Mapped[str] = mapped_column(
         String(50), default="manual", nullable=False)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(
+        timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    subscription_id: Mapped[int | None] = mapped_column(
+        ForeignKey("subscriptions.id"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True)
+    plan_id: Mapped[int] = mapped_column(
+        ForeignKey("plans.id"), nullable=False, index=True)
+    amount_cents: Mapped[int] = mapped_column(default=0, nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(3), default="usd", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), default="issued", nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(
+        timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(
+        String(30), default="in_app", nullable=False)
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(150), nullable=False)
+    body: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_read: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(

@@ -46,6 +46,7 @@ Tier 4 Architecture is a backend starter focused on clarity and maintainability.
 - Socket.IO + a bare WebSocket endpoint for real-time experimentation, including authenticated product-created broadcasts
 - Alembic migration scaffolding, a local seed-data script, and an automated test suite covering the flows above
 - Docker + Docker Compose (API + Postgres + Redis) and a GitHub Actions CI workflow (lint + test) out of the box
+- A lightweight background-job queue abstraction for auth email and billing-related follow-up work, with a worker-friendly entry point for future expansion
 
 ## Why this project
 
@@ -262,6 +263,7 @@ A plan/feature/subscription system for gating functionality behind paid tiers, p
 - Admin endpoints (require the `billing.manage` RBAC permission) to create plans and features, map features onto a plan, assign a subscription directly, toggle `subscriptions_enabled`/`payment_providers_enabled` at runtime, and pull basic subscription metrics
 - A `GET /api/v1/billing/feature-check` route and a `require_feature("<key>")` FastAPI dependency (`backend/core/security/entitlements.py`) that superusers and users with a matching active/trialing plan pass, and everyone else gets a `402 Payment Required` with an `upgrade_url` — this is the primitive to gate any route or feature behind a plan
 - `POST /api/v1/billing/checkout` to start a Stripe or PayPal checkout session and `POST /api/v1/billing/webhooks/stripe` to receive provider webhooks, with idempotent processing (a Redis-backed idempotency store plus a unique `(provider, provider_event_id)` constraint on the persisted `PaymentEvent` row) so a redelivered webhook can't double-apply
+- Billing emails are now templated for subscription, plan-change, and payment-failure events, and the background-job queue also exposes a trial-expiry processing helper for later scheduler wiring
 - Self-service `GET /api/v1/billing/plans`, `GET /api/v1/billing/subscriptions/me`, and `POST /api/v1/billing/subscriptions/cancel` routes for the current user
 - **Heads up:** `settings.subscriptions_enabled` can currently be toggled two independent ways — `PATCH /api/v1/billing/admin/settings` (needs `billing.manage`) and `PATCH /api/v1/admin/system/subscriptions-enabled` (needs `system.billing_toggle`) — both work, neither is wrong, but it's worth consolidating onto one before relying on it operationally.
 - **Current caveat:** `StripeAdapter`/`PayPalAdapter` (`backend/integrations/stripe_adapter.py`, `backend/integrations/paypal_adapter.py`) are lightweight stand-ins today — they don't call the real Stripe/PayPal SDKs or APIs, they just return deterministic fake customer/session ids and treat any non-empty signature header as "verified." The plan/feature/subscription/webhook _data model and workflow_ are real and tested; swapping in the actual provider SDKs is the remaining step before this is production-ready payment processing. See [known limitations](#before-you-ship-this-known-limitations).
@@ -303,6 +305,12 @@ A plan/feature/subscription system for gating functionality behind paid tiers, p
 
 ## Quick start
 
+```bash
+docker compose up --build
+```
+
+For local development, the API, Postgres, and Redis services are started together. Authentication email jobs and other deferred work are processed by the background job manager that starts with the API process. If you later add a dedicated worker service, the same queue abstraction can be swapped behind the existing `background_job_manager.enqueue(...)` entry point.
+
 ### Prerequisites
 
 - Python 3.10–3.14
@@ -338,6 +346,8 @@ pip install -r requirements.txt
 # or, for local development with lint/type-check/test tooling:
 pip install -e .[dev]
 ```
+
+For a quick local-only database, you can point the app at SQLite by setting `DATABASE_URL=sqlite+aiosqlite:///./dev.db`.
 
 ### 4. Configure environment variables
 
@@ -693,6 +703,12 @@ Run the full suite with:
 
 ```bash
 pytest -q
+```
+
+For a local SQLite-only dev run, you can also point the app at:
+
+```bash
+export DATABASE_URL=sqlite+aiosqlite:///./dev.db
 ```
 
 Or, matching CI exactly:

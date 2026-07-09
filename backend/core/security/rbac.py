@@ -13,16 +13,22 @@ class AuthorizationPolicy:
         self.required_roles = required_roles
         self.required_permissions = required_permissions
 
-    def allows(self, user: User, db: AsyncSession | None = None) -> bool:
+    async def allows(self, user: User, db: AsyncSession | None = None) -> bool:
         if user.is_superuser:
             return True
         if self.required_roles and user.role not in self.required_roles:
             return False
         if self.required_permissions:
-            permissions = set(user.permissions or [])
-            if self.required_permissions and all(permission in permissions for permission in self.required_permissions):
-                return True
-            return False
+            if db is None:
+                permissions = set(user.permissions or [])
+                if all(permission in permissions for permission in self.required_permissions):
+                    return True
+                return False
+            service = RbacService(db)
+            for permission in self.required_permissions:
+                if not await service.user_has_permission(user, permission):
+                    return False
+            return True
         return True
 
 

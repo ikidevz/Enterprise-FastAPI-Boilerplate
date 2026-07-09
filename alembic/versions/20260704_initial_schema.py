@@ -160,6 +160,7 @@ def upgrade() -> None:
                   nullable=False, server_default="active"),
         sa.Column("provider", sa.String(length=50),
                   nullable=False, server_default="manual"),
+        sa.Column("trial_ends_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(timezone=True),
@@ -190,6 +191,61 @@ def upgrade() -> None:
     op.create_index(op.f("ix_payment_events_provider_event_id"),
                     "payment_events", ["provider_event_id"], unique=False)
 
+    op.create_table(
+        "notifications",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("channel", sa.String(length=30),
+                  nullable=False, server_default="in_app"),
+        sa.Column("kind", sa.String(length=50), nullable=False),
+        sa.Column("title", sa.String(length=150), nullable=False),
+        sa.Column("body", sa.String(length=500), nullable=False),
+        sa.Column("is_read", sa.Boolean(),
+                  nullable=False, server_default="false"),
+        sa.Column("created_at", sa.DateTime(timezone=True),
+                  nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("updated_at", sa.DateTime(timezone=True),
+                  nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_notifications_id"),
+                    "notifications", ["id"], unique=False)
+    op.create_index(op.f("ix_notifications_user_id"),
+                    "notifications", ["user_id"], unique=False)
+
+    op.create_table(
+        "invoices",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("subscription_id", sa.Integer(), nullable=True),
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("plan_id", sa.Integer(), nullable=False),
+        sa.Column("amount_cents", sa.Integer(),
+                  nullable=False, server_default="0"),
+        sa.Column("currency", sa.String(length=3),
+                  nullable=False, server_default="usd"),
+        sa.Column("status", sa.String(length=30),
+                  nullable=False, server_default="issued"),
+        sa.Column("description", sa.String(length=255), nullable=True),
+        sa.Column("issued_at", sa.DateTime(timezone=True),
+                  nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("created_at", sa.DateTime(timezone=True),
+                  nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("updated_at", sa.DateTime(timezone=True),
+                  nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["subscription_id"], ["subscriptions.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
+        sa.ForeignKeyConstraint(["plan_id"], ["plans.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_invoices_id"), "invoices", ["id"], unique=False)
+    op.create_index(op.f("ix_invoices_subscription_id"),
+                    "invoices", ["subscription_id"], unique=False)
+    op.create_index(op.f("ix_invoices_user_id"),
+                    "invoices", ["user_id"], unique=False)
+    op.create_index(op.f("ix_invoices_plan_id"),
+                    "invoices", ["plan_id"], unique=False)
+
     op.execute(
         sa.text(
             "INSERT INTO roles (key, name, description, is_system) VALUES ('user', 'User', 'Default user role', 1), ('staff', 'Staff', 'Staff role', 1), ('admin', 'Admin', 'Administrative role', 1)"
@@ -208,6 +264,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_notifications_user_id"), table_name="notifications")
+    op.drop_index(op.f("ix_notifications_id"), table_name="notifications")
+    op.drop_table("notifications")
+    op.drop_index(op.f("ix_invoices_plan_id"), table_name="invoices")
+    op.drop_index(op.f("ix_invoices_user_id"), table_name="invoices")
+    op.drop_index(op.f("ix_invoices_subscription_id"), table_name="invoices")
+    op.drop_index(op.f("ix_invoices_id"), table_name="invoices")
+    op.drop_table("invoices")
     op.drop_index(op.f("ix_payment_events_provider_event_id"),
                   table_name="payment_events")
     op.drop_index(op.f("ix_payment_events_id"), table_name="payment_events")

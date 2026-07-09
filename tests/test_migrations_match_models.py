@@ -68,6 +68,8 @@ def test_alembic_head_creates_rbac_and_billing_tables(tmp_path) -> None:
         "plan_features",
         "subscriptions",
         "payment_events",
+        "invoices",
+        "notifications",
     }
     missing = expected - tables
     assert not missing, f"Migration is missing tables: {sorted(missing)}"

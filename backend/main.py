@@ -60,6 +60,10 @@ async def add_request_context(request: Request, call_next):
         response.headers["referrer-policy"] = (
             "strict-origin-when-cross-origin"
         )
+        response.headers["content-security-policy"] = (
+            "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+        )
+        response.headers["permissions-policy"] = "geolocation=(), microphone=(), camera=()"
 
         if settings.require_https:
             response.headers[

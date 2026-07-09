@@ -7,10 +7,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.common.background_jobs import enqueue_billing_notification
 from backend.core.config import settings
 from backend.core.security.dependencies import get_current_active_user, get_db
 from backend.core.security.rbac import require_permission
-from backend.domain.billing.models import Feature, Plan, PlanFeature, Subscription
+from backend.domain.billing.models import Feature, Invoice, Notification, Plan, PlanFeature, Subscription
 from backend.domain.billing.service import BillingService
 from backend.domain.billing.webhook_models import PaymentEvent
 from backend.domain.users.model import User
@@ -131,12 +132,15 @@ async def get_billing_metrics(
     current_user: User = Depends(require_permission("billing.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    subscriptions_result = await db.execute(select(Subscription))
-    subscriptions = list(subscriptions_result.scalars().all())
-    active_count = sum(1 for item in subscriptions if item.status in {
-                       "active", "trialing"})
-    mrr_cents = sum(item.plan_id for item in subscriptions if item.status in {
-                    "active", "trialing"})
+    subscriptions_result = await db.execute(
+        select(Subscription, Plan.price_cents)
+        .join(Plan, Subscription.plan_id == Plan.id)
+        .where(Subscription.status.in_({"active", "trialing"}))
+    )
+    subscription_rows = subscriptions_result.all()
+    active_count = len(subscription_rows)
+    mrr_cents = sum(price_cents for _,
+                    price_cents in subscription_rows if price_cents is not None)
     return {
         "active_subscribers": active_count,
         "mrr_cents": mrr_cents,
@@ -158,11 +162,144 @@ async def assign_subscription(
         provider=str(payload.get("provider", "manual")),
     )
     db.add(subscription)
+    await db.flush()
+
+    plan = await db.get(Plan, subscription.plan_id)
+    invoice = Invoice(
+        subscription_id=subscription.id,
+        user_id=subscription.user_id,
+        plan_id=subscription.plan_id,
+        amount_cents=plan.price_cents if plan is not None else 0,
+        description=f"Initial subscription for plan {plan.key if plan is not None else 'unknown'}",
+        status="issued",
+    )
+    db.add(invoice)
     await db.commit()
     await db.refresh(subscription)
+    await db.refresh(invoice)
+    enqueue_billing_notification(
+        user_id=subscription.user_id,
+        kind="subscription_assigned",
+        title="Subscription activated",
+        body=f"Your subscription to plan {plan.key if plan is not None else 'your selected plan'} is now active.",
+    )
     audit_logger.log(current_user, "billing.subscription_assigned", "billing", {
                      "subscription_id": subscription.id, "user_id": subscription.user_id})
     return {"id": subscription.id, "user_id": subscription.user_id, "plan_id": subscription.plan_id, "provider": subscription.provider, "status": subscription.status}
+
+
+@router.post("/subscriptions/change-plan")
+async def change_plan(
+    payload: dict[str, object],
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Subscription).where(Subscription.user_id == current_user.id).order_by(Subscription.id.desc()).limit(1))
+    subscription = result.scalar_one_or_none()
+    if subscription is None:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "subscription_not_found"})
+
+    plan_id = int(payload.get("plan_id", 0))
+    plan = await db.get(Plan, plan_id)
+    if plan is None:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "plan_not_found"})
+
+    current_plan = await db.get(Plan, subscription.plan_id)
+    proration_days = max(1, int(payload.get("proration_days", 30)))
+    delta_cents = plan.price_cents - \
+        (current_plan.price_cents if current_plan is not None else 0)
+    prorated_amount_cents = int(delta_cents * proration_days / 30)
+
+    subscription.plan_id = plan.id
+    subscription.status = "active"
+
+    invoice = Invoice(
+        subscription_id=subscription.id,
+        user_id=current_user.id,
+        plan_id=plan.id,
+        amount_cents=abs(prorated_amount_cents),
+        description=f"Proration for plan change to {plan.key}",
+        status="issued",
+    )
+    db.add(invoice)
+    await db.commit()
+    await db.refresh(subscription)
+    await db.refresh(invoice)
+    enqueue_billing_notification(
+        user_id=current_user.id,
+        kind="plan_changed",
+        title="Plan updated",
+        body=f"Your billing plan has been updated to {plan.key}.",
+    )
+    return {
+        "id": subscription.id,
+        "plan_id": subscription.plan_id,
+        "status": subscription.status,
+        "prorated_amount_cents": prorated_amount_cents,
+    }
+
+
+@router.get("/invoices/me")
+async def get_my_invoices(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Invoice).where(Invoice.user_id == current_user.id).order_by(Invoice.id.desc()))
+    invoices = result.scalars().all()
+    return [{
+        "id": invoice.id,
+        "plan_id": invoice.plan_id,
+        "amount_cents": invoice.amount_cents,
+        "status": invoice.status,
+        "description": invoice.description,
+    } for invoice in invoices]
+
+
+@router.get("/admin/invoices")
+async def list_all_invoices(
+    current_user: User = Depends(require_permission("billing.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Invoice).order_by(Invoice.id.desc()))
+    invoices = result.scalars().all()
+    return [{
+        "id": invoice.id,
+        "user_id": invoice.user_id,
+        "plan_id": invoice.plan_id,
+        "amount_cents": invoice.amount_cents,
+        "status": invoice.status,
+        "description": invoice.description,
+    } for invoice in invoices]
+
+
+@router.get("/notifications/me")
+async def list_my_notifications(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Notification).where(Notification.user_id == current_user.id).order_by(Notification.id.desc()))
+    notifications = result.scalars().all()
+    return [{
+        "id": item.id,
+        "kind": item.kind,
+        "title": item.title,
+        "body": item.body,
+        "is_read": item.is_read,
+    } for item in notifications]
+
+
+@router.post("/notifications/me/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != current_user.id:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "notification_not_found"})
+    notification.is_read = True
+    await db.commit()
+    return {"id": notification.id, "is_read": notification.is_read}
 
 
 @router.post("/checkout")
@@ -260,11 +397,27 @@ async def stripe_webhook(
     payload: dict[str, object],
     db: AsyncSession = Depends(get_db),
 ):
-    provider = str(payload.get("provider", "stripe"))
+    provider = str(payload.get("provider", "stripe")).lower()
     event_id = str(payload.get("event_id", ""))
     event_type = str(payload.get("event_type", ""))
-    signature_header = request.headers.get(
-        "x-signature") or str(payload.get("signature", ""))
+    signature_header = (
+        request.headers.get("x-signature")
+        or request.headers.get("x-stripe-signature")
+        or request.headers.get("x-paypal-transmission-sig")
+        or str(payload.get("signature", ""))
+    )
+    adapter = StripeAdapter() if provider == "stripe" else PayPalAdapter(
+    ) if provider == "paypal" else None
+    if adapter is None:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "unsupported_provider"})
+
+    payload_bytes = json.dumps(payload, separators=(
+        ",", ":"), sort_keys=True).encode("utf-8")
+    verification = adapter.verify_webhook_signature(
+        payload=payload_bytes, signature_header=signature_header)
+    if not verification.get("verified", False):
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "invalid_webhook_signature"})
+
     store = get_idempotency_store()
     existing_key = await store.get(f"{provider}:{event_id}")
     if existing_key is not None:
@@ -277,11 +430,6 @@ async def stripe_webhook(
     if existing is not None:
         await store.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})
         return {"processed": False, "duplicate": True, "event_id": event_id}
-
-    verification = StripeAdapter().verify_webhook_signature(
-        payload=json.dumps(payload).encode("utf-8"), signature_header=signature_header)
-    if signature_header and not verification.get("verified", False):
-        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "invalid_webhook_signature"})
 
     event = PaymentEvent(
         provider=provider,
@@ -300,6 +448,27 @@ async def stripe_webhook(
             provider=provider,
         )
         db.add(subscription)
+    elif event_type == "invoice.payment_failed":
+        subscription_id = int(payload.get("subscription_id", 0) or 0)
+        subscription: Subscription | None = None
+        if subscription_id:
+            subscription = await db.get(Subscription, subscription_id)
+        if subscription is None:
+            subscription = await db.scalar(
+                select(Subscription).where(
+                    Subscription.user_id == int(payload.get("user_id", 0)),
+                    Subscription.plan_id == int(payload.get("plan_id", 0)),
+                ).order_by(Subscription.id.desc()).limit(1)
+            )
+        if subscription is not None:
+            subscription.status = "past_due"
+            await db.flush()
+            enqueue_billing_notification(
+                user_id=subscription.user_id,
+                kind="payment_failed",
+                title="Payment failed",
+                body="A recent payment attempt failed. Please update your billing details to restore access.",
+            )
 
     await db.commit()
     await store.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})

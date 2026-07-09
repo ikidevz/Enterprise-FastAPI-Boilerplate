@@ -73,7 +73,7 @@ def test_grant_ceiling_rejects_assigning_a_role_with_permissions_the_actor_does_
 
 
 def test_disabled_feature_returns_service_unavailable(client):
-    user = register_user(
+    register_user(
         client, email="disabled-user@example.com", username="disableduser")
     headers = {
         "Authorization": f"Bearer {login_user(client, email='disabled-user@example.com')}"}
@@ -113,8 +113,8 @@ def test_billing_admin_plan_management(client):
 
 
 def test_billing_settings_checkout_and_cancellation_flow(client):
-    admin = register_user(client, email="billingops@example.com",
-                          username="billingops", password="StrongPass123!", role="admin")
+    register_user(client, email="billingops@example.com",
+                  username="billingops", password="StrongPass123!", role="admin")
     user = register_user(client, email="subscriber@example.com",
                          username="subscriber", password="StrongPass123!")
 

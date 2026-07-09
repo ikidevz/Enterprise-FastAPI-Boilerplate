@@ -16,3 +16,4 @@ python-multipart>=0.0.9
 # Required by Pydantic's EmailStr validation
 email-validator>=2.1.0
 pytest>=8.0.0
+aiosqlite>=0.19.0

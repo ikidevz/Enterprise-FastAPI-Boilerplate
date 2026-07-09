@@ -34,3 +34,19 @@ def test_smtp_backend_is_used_when_explicitly_configured(monkeypatch) -> None:
     service = EmailDeliveryService()
 
     assert isinstance(service.transport, SMTPEmailTransport)
+
+
+def test_billing_event_email_uses_a_templated_subject_and_body() -> None:
+    """Billing emails should include a clear subject and the relevant plan context."""
+    transport = CaptureTransport()
+    service = EmailDeliveryService(transport=transport)
+
+    service.send_billing_event_email(
+        to="billing@example.com",
+        event_type="subscription_assigned",
+        plan_name="Pro",
+    )
+
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["subject"] == "Your billing plan is now active"
+    assert "Pro" in transport.calls[0]["body"]

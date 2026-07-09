@@ -1,7 +1,11 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers, login_user, register_user
-from backend.core.security.rbac import AuthorizationPolicy
+from backend.core.security.rbac import AuthorizationPolicy, require_policy
+from backend.database import session as db_session
+from backend.domain.rbac.service import RbacService
+from backend.domain.users.model import User
 from backend.domain.users.model import User
 
 
@@ -239,6 +243,55 @@ def test_delete_product_requires_admin_role(client: TestClient) -> None:
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_require_policy_honors_role_based_permissions(client: TestClient) -> None:
+    """Policy-based authorization should honor permissions coming from RBAC role assignments."""
+    created_user = register_user(
+        client, email="policy-user@example.com", username="policy-user", role="user")
+
+    async with db_session.SessionLocal() as db:
+        service = RbacService(db)
+        role = await service.create_role(key="reviewer", name="Reviewer")
+        permission = await service.create_permission(key="reports.view", name="View Reports")
+        await service.set_role_permissions(role_id=role.id, permission_ids=[permission.id], acting_user=None)
+        await service.assign_roles_to_user(user_id=created_user["id"], role_ids=[role.id], acting_user=None)
+
+        user = await db.get(User, created_user["id"])
+        assert user is not None
+
+        dependency = require_policy(AuthorizationPolicy(
+            required_permissions=("reports.view",)))
+        authorized_user = await dependency(current_user=user, db=db)
+        assert authorized_user is user
+
+
+def test_permission_granted_via_admin_role_endpoint_is_honored_by_permission_gate(client: TestClient) -> None:
+    """A permission assigned through the admin role endpoint should work for later permission-gated routes."""
+    register_user(client, email="permission-admin@example.com",
+                  username="permission-admin", role="admin")
+    admin_token = login_user(client, email="permission-admin@example.com")
+
+    register_user(client, email="permission-target@example.com",
+                  username="permission-target", role="user")
+    target_token = login_user(client, email="permission-target@example.com")
+
+    response = client.patch(
+        "/api/v1/admin/users/2/role",
+        headers=auth_headers(admin_token),
+        json={"permissions": ["system.billing_toggle"]},
+    )
+    assert response.status_code == 200
+
+    gated_response = client.patch(
+        "/api/v1/admin/system/subscriptions-enabled",
+        headers=auth_headers(target_token),
+        json={"subscriptions_enabled": True},
+    )
+
+    assert gated_response.status_code == 200
+    assert gated_response.json()["subscriptions_enabled"] is True
 
 
 def test_admin_can_bulk_update_user_roles_and_permissions(client: TestClient) -> None:

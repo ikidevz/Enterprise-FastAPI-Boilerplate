@@ -81,10 +81,13 @@ def _reset_audit_logger() -> None:
 
 def _reset_background_job_manager() -> None:
     """Drop any queued-but-not-yet-run background jobs from a previous test."""
-    while not background_job_manager._queue.empty():
+    queue = getattr(background_job_manager, "_queue", None)
+    if queue is None:
+        return
+    while True:
         try:
-            background_job_manager._queue.get_nowait()
-            background_job_manager._queue.task_done()
+            queue.get_nowait()
+            queue.task_done()
         except Exception:
             break
 

@@ -312,6 +312,20 @@ def get_settings() -> Settings:
     for env_path in env_paths:
         _load_env_file(env_path)
 
+    resolved_database_url = _read_secret_value(
+        os.getenv("DATABASE_URL"), os.getenv("DATABASE_URL_FILE"))
+    resolved_redis_url = _read_secret_value(
+        os.getenv("REDIS_URL"), os.getenv("REDIS_URL_FILE"))
+    resolved_secret_key = _read_secret_value(
+        os.getenv("SECRET_KEY"), os.getenv("SECRET_KEY_FILE"))
+
+    if resolved_database_url is not None:
+        os.environ["DATABASE_URL"] = resolved_database_url
+    if resolved_redis_url is not None:
+        os.environ["REDIS_URL"] = resolved_redis_url
+    if resolved_secret_key is not None:
+        os.environ["SECRET_KEY"] = resolved_secret_key
+
     settings = Settings()
     if settings.environment != settings.app_env:
         settings.app_env = settings.environment

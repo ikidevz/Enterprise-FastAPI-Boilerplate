@@ -158,6 +158,8 @@ class RbacService:
         await self.ensure_seed_data()
         if user.is_superuser:
             return True
+        if isinstance(user.permissions, list) and permission_key in user.permissions:
+            return True
         result = await self.db.execute(
             select(RolePermission.permission_id)
             .join(Permission)
