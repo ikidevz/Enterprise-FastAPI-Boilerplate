@@ -38,6 +38,7 @@ Tier 4 Architecture is a backend starter focused on clarity and maintainability.
 - A sample `products` module demonstrating a second domain with search, sort, and pagination-style listing
 - Admin-only product write operations and admin-only user listing, while product reads remain public
 - Multipart file upload with authentication, local storage, and static serving
+- Subscription billing primitives — plans, features, plan↔feature entitlements, per-user subscriptions, a feature-gate dependency, and Stripe/PayPal checkout + webhook routes (see [Billing and subscriptions](#billing-and-subscriptions))
 - Middleware for request correlation (request ID / trace ID), rate limiting, and payload-size protection
 - Environment-profile configuration with `*_FILE`-based secret resolution for container/secret-mount deployments
 - Pluggable email delivery (console backend for local dev, SMTP for real sending)
@@ -253,6 +254,18 @@ A second domain module included to show the same layered pattern applied twice:
 - Local disk storage by default, with server-generated UUID filenames; files are served back only through the authenticated, ownership-checked `GET /api/v1/uploads/{stored_name}` route — there is **no** public `/static/uploads` mount
 - Pluggable cloud storage backends (`UPLOAD_BACKEND=s3` / `azure`) already implemented in `backend/infrastructure/upload_storage.py`, alongside the default `local` backend
 
+### Billing and subscriptions
+
+A plan/feature/subscription system for gating functionality behind paid tiers, plus checkout and webhook plumbing for Stripe and PayPal:
+
+- `Plan`, `Feature`, `PlanFeature`, and `Subscription` models (`backend/domain/billing/models.py`) — plans have a price, billing interval, and active flag; features are mapped to plans many-to-many; subscriptions link a user to a plan with a `status` (`active`/`trialing`/`canceled`/…) and `provider` (`manual`/`stripe`/`paypal`)
+- Admin endpoints (require the `billing.manage` RBAC permission) to create plans and features, map features onto a plan, assign a subscription directly, toggle `subscriptions_enabled`/`payment_providers_enabled` at runtime, and pull basic subscription metrics
+- A `GET /api/v1/billing/feature-check` route and a `require_feature("<key>")` FastAPI dependency (`backend/core/security/entitlements.py`) that superusers and users with a matching active/trialing plan pass, and everyone else gets a `402 Payment Required` with an `upgrade_url` — this is the primitive to gate any route or feature behind a plan
+- `POST /api/v1/billing/checkout` to start a Stripe or PayPal checkout session and `POST /api/v1/billing/webhooks/stripe` to receive provider webhooks, with idempotent processing (a Redis-backed idempotency store plus a unique `(provider, provider_event_id)` constraint on the persisted `PaymentEvent` row) so a redelivered webhook can't double-apply
+- Self-service `GET /api/v1/billing/plans`, `GET /api/v1/billing/subscriptions/me`, and `POST /api/v1/billing/subscriptions/cancel` routes for the current user
+- **Heads up:** `settings.subscriptions_enabled` can currently be toggled two independent ways — `PATCH /api/v1/billing/admin/settings` (needs `billing.manage`) and `PATCH /api/v1/admin/system/subscriptions-enabled` (needs `system.billing_toggle`) — both work, neither is wrong, but it's worth consolidating onto one before relying on it operationally.
+- **Current caveat:** `StripeAdapter`/`PayPalAdapter` (`backend/integrations/stripe_adapter.py`, `backend/integrations/paypal_adapter.py`) are lightweight stand-ins today — they don't call the real Stripe/PayPal SDKs or APIs, they just return deterministic fake customer/session ids and treat any non-empty signature header as "verified." The plan/feature/subscription/webhook _data model and workflow_ are real and tested; swapping in the actual provider SDKs is the remaining step before this is production-ready payment processing. See [known limitations](#before-you-ship-this-known-limitations).
+
 ### Reliability and observability
 
 - Request ID / trace ID generation and propagation via `x-request-id` / `x-trace-id` headers, bound into the logging context for correlation
@@ -270,13 +283,13 @@ A second domain module included to show the same layered pattern applied twice:
 ## Project structure
 
 - [backend/app](backend/app) — API routers, the app factory, bootstrap registration (middleware/routers/static), and Socket.IO wiring
-- [backend/application](backend/application) — use cases per feature (`users/`, `products/`, `auth/`), plus shared ports and application-level services
-- [backend/domain](backend/domain) — per-feature services, repositories, and models (`users/`, `products/`), plus `events/` for domain events
+- [backend/application](backend/application) — use cases per feature (`users/`, `products/`, `auth/`, `billing/`), plus shared ports and application-level services
+- [backend/domain](backend/domain) — per-feature services, repositories, and models (`users/`, `products/`, `billing/`, `rbac/`), plus `events/` for domain events
 - [backend/database](backend/database) — async engine/session setup and the shared declarative base
 - [backend/common](backend/common) — shared cross-cutting code: schemas, base repository/service classes, background jobs, bootstrap/exporters helpers
 - [backend/infrastructure](backend/infrastructure) — startup/shutdown wiring that attaches logging, Redis, background jobs, and email onto `app.state`; also the `PlatformRuntime` facade backing `/runtime` (`backend/infrastructure/runtime.py`)
-- [backend/integrations](backend/integrations) — adapters bridging the domain to external systems (currently: email)
-- [backend/core/security](backend/core/security) — auth dependencies, RBAC/role checks, and token issuance/rotation/revocation
+- [backend/integrations](backend/integrations) — adapters bridging the domain to external systems: email, plus `stripe_adapter.py`/`paypal_adapter.py` for billing checkout/webhooks (see [Billing and subscriptions](#billing-and-subscriptions) for their current stub-vs-real-SDK status)
+- [backend/core/security](backend/core/security) — auth dependencies, RBAC/role and permission checks (`rbac.py`), the plan/feature entitlement gate (`entitlements.py`), and token issuance/rotation/revocation
 - [backend/resilience](backend/resilience) — rate limiting and the retry/circuit-breaker primitives
 - [backend/observability](backend/observability) — structured logging, audit trail, metrics, and tracing
 - [backend/contracts](backend/contracts) — API-facing contract definitions exposed through `backend/contracts/__init__.py`
@@ -391,6 +404,7 @@ Settings roughly group into:
 - **CORS** — `CORS_ORIGINS`
 - **Rate limiting & payload protection** — `ENABLE_RATE_LIMITING`, `RATE_LIMIT_REQUESTS_PER_MINUTE`, `MAX_REQUEST_SIZE_BYTES`
 - **Uploads** — `UPLOAD_DIR`
+- **Billing & subscriptions** — `SUBSCRIPTIONS_ENABLED` (master toggle for feature-gating, off by default), `PAYMENT_PROVIDERS_ENABLED` (allow-list of checkout providers, e.g. `stripe,paypal`), `DISABLED_FEATURES` (feature keys forced off regardless of plan) — all also patchable at runtime by an admin via `PATCH /api/v1/billing/admin/settings`
 - **Email** — `EMAIL_BACKEND` (`console`/`smtp`), `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_USE_TLS`/`SMTP_USE_SSL`/`SMTP_FROM_EMAIL`
 - **Seed admin** — `DEFAULT_ADMIN_EMAIL`/`DEFAULT_ADMIN_USERNAME`/`DEFAULT_ADMIN_PASSWORD`
 - **Transport security** — `REQUIRE_HTTPS`
@@ -404,27 +418,37 @@ If you're deploying anywhere shared, provide secrets via real environment variab
 
 All routes below live under `API_V1_STR` (default `/api/v1`) unless noted otherwise. See [DOCUMENTATION.md](DOCUMENTATION.md#4-full-api-endpoint-reference) for the complete table including which routes currently require authentication.
 
-| Method                    | Path                                                    | Purpose                                                                                                                  |
-| ------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| POST                      | `/api/v1/users/`                                        | Register a user                                                                                                          |
-| GET                       | `/api/v1/users/me`                                      | Current user's profile                                                                                                   |
-| GET / PUT / DELETE        | `/api/v1/users/{user_id}`                               | Read / update / delete a user                                                                                            |
-| GET                       | `/api/v1/users/`                                        | List users                                                                                                               |
-| POST                      | `/api/v1/auth/login`                                    | Authenticate, receive access + refresh tokens                                                                            |
-| POST                      | `/api/v1/auth/refresh`                                  | Rotate a refresh token                                                                                                   |
-| POST                      | `/api/v1/auth/logout`                                   | Revoke a refresh token                                                                                                   |
-| POST                      | `/api/v1/auth/password-reset/request` \| `/confirm`     | Password reset flow                                                                                                      |
-| POST                      | `/api/v1/auth/email-verification/request` \| `/confirm` | Email verification flow                                                                                                  |
-| POST / GET / PUT / DELETE | `/api/v1/products/` \| `/{product_id}`                  | Product CRUD; writes require auth, list/read remain public, and list supports `search`, `skip`, `limit`, `sort`, `order` |
-| POST                      | `/api/v1/uploads/`                                      | Upload a file (auth required)                                                                                            |
-| GET                       | `/api/v1/admin/users`                                   | Admin-only user listing                                                                                                  |
-| PATCH                     | `/api/v1/admin/users/{user_id}/role`                    | Admin-only role/permission change for a user, audit-logged with a before/after diff                                      |
-| GET                       | `/health`                                               | Liveness check                                                                                                           |
-| GET                       | `/health/ready`                                         | Readiness check (DB + Redis)                                                                                             |
-| GET                       | `/metrics`                                              | In-process request metrics snapshot                                                                                      |
-| GET                       | `/runtime`                                              | Operational snapshot (env, uptime, metrics)                                                                              |
-| WS                        | `/ws/health`                                            | Bare WebSocket connectivity check                                                                                        |
-| Socket.IO                 | `/socket.io`                                            | Real-time event channel                                                                                                  |
+| Method                    | Path                                                                                    | Purpose                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| POST                      | `/api/v1/users/`                                                                        | Register a user                                                                                                          |
+| GET                       | `/api/v1/users/me`                                                                      | Current user's profile                                                                                                   |
+| GET / PUT / DELETE        | `/api/v1/users/{user_id}`                                                               | Read / update / delete a user                                                                                            |
+| GET                       | `/api/v1/users/`                                                                        | List users                                                                                                               |
+| POST                      | `/api/v1/auth/login`                                                                    | Authenticate, receive access + refresh tokens                                                                            |
+| POST                      | `/api/v1/auth/refresh`                                                                  | Rotate a refresh token                                                                                                   |
+| POST                      | `/api/v1/auth/logout`                                                                   | Revoke a refresh token                                                                                                   |
+| POST                      | `/api/v1/auth/password-reset/request` \| `/confirm`                                     | Password reset flow                                                                                                      |
+| POST                      | `/api/v1/auth/email-verification/request` \| `/confirm`                                 | Email verification flow                                                                                                  |
+| POST / GET / PUT / DELETE | `/api/v1/products/` \| `/{product_id}`                                                  | Product CRUD; writes require auth, list/read remain public, and list supports `search`, `skip`, `limit`, `sort`, `order` |
+| POST                      | `/api/v1/uploads/`                                                                      | Upload a file (auth required)                                                                                            |
+| GET                       | `/api/v1/billing/plans`                                                                 | List active subscription plans (public)                                                                                  |
+| GET                       | `/api/v1/billing/subscriptions/me`                                                      | Current user's subscription status                                                                                       |
+| POST                      | `/api/v1/billing/checkout`                                                              | Start a Stripe/PayPal checkout session for a plan (auth required)                                                        |
+| POST                      | `/api/v1/billing/subscriptions/cancel`                                                  | Cancel the current user's subscription (auth required)                                                                   |
+| GET                       | `/api/v1/billing/feature-check`                                                         | Check whether the current user's plan includes a given feature key (auth required)                                       |
+| POST                      | `/api/v1/billing/webhooks/stripe`                                                       | Stripe/PayPal-style webhook receiver; idempotent on `(provider, event_id)`                                               |
+| POST                      | `/api/v1/billing/admin/plans` \| `/admin/features` \| `/admin/plans/{plan_id}/features` | Create plans/features and map features to a plan (requires `billing.manage` permission)                                  |
+| POST                      | `/api/v1/billing/subscriptions/assign`                                                  | Directly assign a plan to a user (requires `billing.manage` permission)                                                  |
+| PATCH                     | `/api/v1/billing/admin/settings`                                                        | Toggle `subscriptions_enabled` / `payment_providers_enabled` at runtime (requires `billing.manage` permission)           |
+| GET                       | `/api/v1/billing/admin/billing/metrics`                                                 | Basic subscription metrics (requires `billing.manage` permission)                                                        |
+| GET                       | `/api/v1/admin/users`                                                                   | Admin-only user listing                                                                                                  |
+| PATCH                     | `/api/v1/admin/users/{user_id}/role`                                                    | Admin-only role/permission change for a user, audit-logged with a before/after diff                                      |
+| GET                       | `/health`                                                                               | Liveness check                                                                                                           |
+| GET                       | `/health/ready`                                                                         | Readiness check (DB + Redis)                                                                                             |
+| GET                       | `/metrics`                                                                              | In-process request metrics snapshot                                                                                      |
+| GET                       | `/runtime`                                                                              | Operational snapshot (env, uptime, metrics)                                                                              |
+| WS                        | `/ws/health`                                                                            | Bare WebSocket connectivity check                                                                                        |
+| Socket.IO                 | `/socket.io`                                                                            | Real-time event channel                                                                                                  |
 
 ### Example request
 
@@ -550,12 +574,54 @@ curl -X POST "http://127.0.0.1:8000/api/v1/uploads/" \
   -F "file=@./example.pdf"
 ```
 
+### Billing (`backend/app/api/v1/billing/router.py`)
+
+Plan/feature/subscription management, checkout, and webhooks. Admin routes below require the `billing.manage` RBAC permission (`Depends(require_permission("billing.manage"))`), not just `role == "admin"`.
+
+| Method | Path                                      | Auth                     | Body / query                                                          | Success response                                                                                                                                                                 |
+| ------ | ----------------------------------------- | ------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/billing/plans`                          | None (public)            | —                                                                     | `200` → `list[{ id, key, name, price_cents, billing_interval }]` for active plans                                                                                                |
+| GET    | `/billing/subscriptions/me`               | Bearer                   | —                                                                     | `200` → `{ status, plan }` or `{ status: "none", plan: null }` if the user has never subscribed                                                                                  |
+| POST   | `/billing/checkout`                       | Bearer                   | JSON `{ plan_id, provider?, success_url?, cancel_url? }`              | `200` → `{ provider, plan_id, checkout_url, customer_id }`; `400` if the provider isn't in `PAYMENT_PROVIDERS_ENABLED`                                                           |
+| POST   | `/billing/subscriptions/cancel`           | Bearer                   | —                                                                     | `200` → cancels the user's most recent subscription (sets `status="canceled"`)                                                                                                   |
+| GET    | `/billing/feature-check`                  | Bearer                   | query `feature` (defaults to `reports.export`)                        | `200` → `{ allowed: true, feature }`; `402` → `{ error: "feature_not_in_plan", upgrade_url }` if the plan doesn't include it; `503` if the feature key is in `DISABLED_FEATURES` |
+| POST   | `/billing/webhooks/stripe`                | None (signature-checked) | JSON `{ provider?, event_id, event_type, ... }`, `x-signature` header | `200` → `{ processed, duplicate, event_id }`; idempotent by `(provider, event_id)` via both a Redis-backed idempotency store and a unique constraint on the persisted event      |
+| POST   | `/billing/admin/plans`                    | Bearer, `billing.manage` | JSON `{ key, name, price_cents, billing_interval, is_active? }`       | `201` → created plan                                                                                                                                                             |
+| POST   | `/billing/admin/features`                 | Bearer, `billing.manage` | JSON `{ key, name, description? }`                                    | `201` → created feature                                                                                                                                                          |
+| POST   | `/billing/admin/plans/{plan_id}/features` | Bearer, `billing.manage` | JSON `{ feature_keys: string[] }`                                     | `200` → `{ plan_id, feature_keys }`; creates any feature keys that don't already exist                                                                                           |
+| POST   | `/billing/subscriptions/assign`           | Bearer, `billing.manage` | JSON `{ user_id, plan_id, provider?, status? }`                       | `201` → created subscription (for manual/admin-assigned plans, comps, etc.)                                                                                                      |
+| PATCH  | `/billing/admin/settings`                 | Bearer, `billing.manage` | JSON `{ subscriptions_enabled?, payment_providers_enabled? }`         | `200` → the updated settings, applied in-process immediately                                                                                                                     |
+| GET    | `/billing/admin/billing/metrics`          | Bearer, `billing.manage` | —                                                                     | `200` → `{ active_subscribers, mrr_cents, churned_this_month, trial_conversion_rate }` (a starter metrics shape — see note below)                                                |
+
+Notes:
+
+- Gate any route or feature behind a plan with the `require_feature("<key>")` dependency (`backend/core/security/entitlements.py`) instead of re-implementing the `feature-check` logic — it's the same plan/feature lookup used by `GET /billing/feature-check`, returning `402` with an `upgrade_url` on the same shape.
+- Superusers and, when `subscriptions_enabled=false` (the default), _every_ user bypass the feature gate entirely — so the gate is inert until you explicitly turn `SUBSCRIPTIONS_ENABLED=true` on.
+- `mrr_cents` in the metrics response is currently computed by summing `plan_id` values, not `price_cents` — it's a placeholder shape for the response contract, not a real MRR calculation yet.
+- `StripeAdapter`/`PayPalAdapter` are mock adapters — `create_checkout_session` returns a deterministic fake `checkout_url`/`customer_id` without calling out to Stripe/PayPal, and `verify_webhook_signature` accepts any non-empty signature header as valid. Swap these for the real `stripe`/`paypal` SDKs before processing real payments.
+
+```bash
+# List active plans
+curl "http://127.0.0.1:8000/api/v1/billing/plans"
+
+# Start a checkout session
+curl -X POST "http://127.0.0.1:8000/api/v1/billing/checkout" \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"plan_id": 1, "provider": "stripe"}'
+
+# Check a feature entitlement
+curl "http://127.0.0.1:8000/api/v1/billing/feature-check?feature=reports.export" \
+  -H "Authorization: Bearer <access_token>"
+```
+
 ### Admin (`backend/app/api/v1/admin/router.py`)
 
-| Method | Path                          | Auth                                     | Body / query                   | Success response                                                                        |
-| ------ | ----------------------------- | ---------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------- |
-| GET    | `/admin/users`                | Bearer, `role == "admin"` (or superuser) | —                              | `200` → `list[UserOut]`, audit-logged as `admin.users.listed`                           |
-| PATCH  | `/admin/users/{user_id}/role` | Bearer, `role == "admin"` (or superuser) | JSON `{ role?, permissions? }` | `200` → updated `UserOut`; audit-logged as `user.role_changed` with a before/after diff |
+| Method | Path                                  | Auth                                       | Body / query                     | Success response                                                                                                                             |
+| ------ | ------------------------------------- | ------------------------------------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/admin/users`                        | Bearer, `role == "admin"` (or superuser)   | —                                | `200` → `list[UserOut]`, audit-logged as `admin.users.listed`                                                                                |
+| PATCH  | `/admin/users/{user_id}/role`         | Bearer, `role == "admin"` (or superuser)   | JSON `{ role?, permissions? }`   | `200` → updated `UserOut`; audit-logged as `user.role_changed` with a before/after diff                                                      |
+| PATCH  | `/admin/system/subscriptions-enabled` | Bearer, `system.billing_toggle` permission | JSON `{ subscriptions_enabled }` | `200` → `{ subscriptions_enabled }`; a second toggle for the same setting as `PATCH /billing/admin/settings` — see the billing section above |
 
 ```bash
 curl -X PATCH "http://127.0.0.1:8000/api/v1/admin/users/2/role" \
@@ -662,6 +728,7 @@ This is a boilerplate, and boilerplates get copied into real projects wholesale 
 - **Tracing and metrics are lightweight by design** — the tracing hooks produce structured logs today, not a wired-up OpenTelemetry exporter pipeline, and `/metrics`/`/runtime` are process-local snapshots (though they are admin-authenticated), not a Prometheus-scrape endpoint or cross-instance aggregate.
 - **Cloud upload backends already exist** — `UploadStorage`'s `S3UploadStorage`/`AzureUploadStorage` implementations live in `backend/infrastructure/upload_storage.py` today; switching from local disk is a matter of setting `UPLOAD_BACKEND=s3` (or `azure`) plus the matching credentials, not writing new code. Downloading through the API when a remote backend is active isn't implemented yet (`GET /api/v1/uploads/{stored_name}` returns `501` for non-`local` backends) — issue a signed URL from the provider instead.
 - **`backend/platform/`, `backend/services/`, and `backend/common/pagination.py` don't exist** in this codebase — see the note in [Project structure](#project-structure) if you've seen those paths referenced elsewhere in this project's history.
+- **Billing/subscriptions already exists in the source but was missing from this documentation** — a full plan/feature/subscription system, admin management routes, a `require_feature()` entitlement gate, and Stripe/PayPal checkout + idempotent webhook handling are implemented and covered by `tests/test_billing_hardening.py`; see [Billing and subscriptions](#billing-and-subscriptions). The gap that remains is real: `StripeAdapter`/`PayPalAdapter` are mock implementations that don't call the actual provider APIs, so this isn't yet wired to real payments.
 
 ## Roadmap
 
@@ -671,7 +738,8 @@ This is a boilerplate, and boilerplates get copied into real projects wholesale 
 - Implement download proxying (or signed-URL issuance) for `GET /api/v1/uploads/{stored_name}` when a remote (`s3`/`azure`) upload backend is active — the storage backends themselves already exist, this is the missing read path
 - Move the audit log onto persistent, queryable storage (today it's `logs/audit.jsonl` plus structured logging) so it holds up under horizontal scaling and restarts
 - Add contract tests for API schemas and backward compatibility
-- Add a second, richer domain module (orders, invoices, or subscriptions) as a guided example of the full layered pattern
+- Replace the mock `StripeAdapter`/`PayPalAdapter` (`backend/integrations/`) with real Stripe/PayPal SDK calls and real webhook signature verification — the plan/feature/subscription data model, entitlement gate, and idempotent webhook handling already exist and are tested; only the outbound HTTP calls to the providers are stubbed
+- Round out the billing module with proration, trial-period expiry, dunning/retry on failed payments, and an invoice/payment-history endpoint — today `Subscription` only tracks current `status`/`provider`, not history
 - Introduce an outbox pattern and event publisher so `DomainEvent`s are actually propagated somewhere, not just logged
 - Formalize environment promotion (dev → staging → prod) for container-based deployment
 
