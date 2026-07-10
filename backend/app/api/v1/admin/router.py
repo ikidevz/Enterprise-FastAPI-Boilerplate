@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
+from sqlalchemy import func, select
 
 from backend.core.config import settings
 from backend.domain.rbac.service import RbacService
@@ -13,8 +15,14 @@ from backend.contracts.users_contracts import UserOut, AdminUserRoleUpdate
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-class BulkRoleUpdatePayload(dict):
-    pass
+class BulkRoleUpdateEntry(BaseModel):
+    user_id: int | None = None
+    role: str | None = None
+    permissions: list[str] | None = None
+
+
+class BulkRoleUpdatePayload(BaseModel):
+    updates: list[BulkRoleUpdateEntry] = []
 
 
 @router.get("/users", response_model=list[UserOut])
@@ -55,6 +63,26 @@ async def set_user_role(
 
     before = {"role": user.role, "permissions": list(user.permissions)}
     if payload.role is not None:
+        if not isinstance(payload.role, str) or not payload.role:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid role")
+        role_service = RbacService(service.repository.db)
+        allowed_roles = {role.key for role in await role_service.list_roles()}
+        if payload.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid role")
+        if user.role == "admin" and payload.role != "admin":
+            total_admins = await service.repository.db.scalar(
+                select(func.count()).select_from(User).where(
+                    User.role == "admin", User.deleted_at.is_(None)
+                )
+            )
+            if total_admins == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={"error": "insufficient_permission",
+                            "message": "Cannot remove the last admin role"},
+                )
         user.role = payload.role
     if payload.permissions is not None:
         user.permissions = payload.permissions
@@ -88,35 +116,60 @@ async def toggle_subscriptions_enabled(
             {"subscriptions_enabled": settings.subscriptions_enabled},
             request=request,
         )
-    return {"subscriptions_enabled": settings.subscriptions_enabled}
+    response = {"subscriptions_enabled": settings.subscriptions_enabled}
+    if settings.environment != "dev":
+        response["warning"] = "Billing toggles are process-local and not persisted across restarts or workers."
+    return response
 
 
 @router.patch("/users/roles", response_model=list[UserOut])
 async def bulk_set_user_roles(
     request: Request,
-    payload: dict[str, list[dict[str, object]]],
+    payload: BulkRoleUpdatePayload,
     current_user: User = Depends(require_role("admin")),
     service: UserService = Depends(get_user_service),
 ) -> list[UserOut]:
-    updates = payload.get("updates", [])
-    if not isinstance(updates, list):
+    updates = payload.updates
+
+    total_admins = await service.repository.db.scalar(
+        select(func.count()).select_from(User).where(
+            User.role == "admin", User.deleted_at.is_(None)
+        )
+    )
+    demotions = 0
+    promotions = 0
+    for entry in updates:
+        user_id = entry.user_id
+        if user_id is None:
+            continue
+        user = await service.get_by_id(user_id)
+        if not user:
+            continue
+        if isinstance(entry.role, str) and entry.role != user.role:
+            if user.role == "admin" and entry.role != "admin":
+                demotions += 1
+            if user.role != "admin" and entry.role == "admin":
+                promotions += 1
+
+    if total_admins - demotions + promotions < 1:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="updates must be a list")
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "insufficient_permission",
+                    "message": "Cannot remove the last admin role"},
+        )
 
     changed: list[UserOut] = []
     for entry in updates:
-        if not isinstance(entry, dict):
-            continue
-        user_id = entry.get("user_id")
-        if not isinstance(user_id, int):
+        user_id = entry.user_id
+        if user_id is None:
             continue
         user = await service.get_by_id(user_id)
         if not user:
             continue
 
         before = {"role": user.role, "permissions": list(user.permissions)}
-        if entry.get("role") is not None:
-            role_value = entry.get("role")
+        if entry.role is not None:
+            role_value = entry.role
             role_service = RbacService(service.repository.db)
             allowed_roles = {role.key for role in await role_service.list_roles()}
             if role_value not in allowed_roles:
@@ -125,9 +178,10 @@ async def bulk_set_user_roles(
                         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid role")
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid role")
+            await role_service.ensure_admins_remain(user_id=user_id)
             user.role = role_value
-        if entry.get("permissions") is not None:
-            permissions_value = entry.get("permissions")
+        if entry.permissions is not None:
+            permissions_value = entry.permissions
             if isinstance(permissions_value, list):
                 user.permissions = [str(item) for item in permissions_value]
             else:

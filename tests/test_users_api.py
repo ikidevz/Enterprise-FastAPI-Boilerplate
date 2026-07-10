@@ -151,3 +151,21 @@ def test_user_registration_accepts_an_idempotency_key(client: TestClient) -> Non
     assert first.status_code == 201
     assert second.status_code == 201
     assert second.json() == first.json()
+
+
+def test_user_registration_assigns_the_free_plan(client: TestClient) -> None:
+    """New users should receive the free plan automatically when it exists."""
+    response = client.post(
+        "/api/v1/users/",
+        json={"email": "freeplan@example.com",
+              "username": "freeplan", "password": "StrongPass123!"},
+    )
+    assert response.status_code == 201
+    token = login_user(client, email="freeplan@example.com")
+
+    export_response = client.get(
+        "/api/v1/users/me/export", headers=auth_headers(token))
+    assert export_response.status_code == 200
+    subscriptions = export_response.json()["subscriptions"]
+    assert any(sub["provider"] == "manual" and sub["status"]
+               == "active" for sub in subscriptions)

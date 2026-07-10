@@ -181,6 +181,26 @@ def test_background_job_manager_runs_an_async_job_too() -> None:
     asyncio.run(run_test())
 
 
+def test_background_job_manager_accepts_jobs_before_start() -> None:
+    """Ensures jobs queued before startup are executed once the manager starts."""
+    async def run_test() -> None:
+        manager = BackgroundJobManager()
+        completed = {"value": False}
+
+        def sync_job() -> None:
+            completed["value"] = True
+
+        manager.enqueue(sync_job)
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+            assert completed["value"] is True
+        finally:
+            await manager.stop()
+
+    asyncio.run(run_test())
+
+
 def test_retry_async_retries_on_failure_and_eventually_succeeds() -> None:
     """Ensures retry async retries on failure and eventually succeeds."""
     async def run_test() -> None:

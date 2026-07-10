@@ -11,6 +11,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
 
   postgres:
     image: postgres:16-alpine
@@ -51,29 +53,7 @@ services:
     volumes:
       - redis_data:/data
 
-  worker:
-    build: .
-    command: ["python", "-m", "backend.scripts.worker"]
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "redis-cli",
-          "-a",
-          "${REDIS_PASSWORD:?set a real password in .env}",
-          "ping",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
 volumes:
   postgres_data:
   redis_data:
+  logs:

@@ -38,11 +38,18 @@ class RequestSizeLimitMiddleware:
                         status_code=413,
                         content={"detail": "Request body too large"},
                     )
-                    await response(scope, receive, send)
+
+                    async def _empty_receive() -> Message:
+                        return {"type": "http.request", "body": b"", "more_body": False}
+
+                    await response(scope, _empty_receive, send)
                     return
                 break
 
         received = 0
+
+        class _BodyTooLarge(Exception):
+            pass
 
         async def limited_receive() -> Message:
             nonlocal received
@@ -55,15 +62,19 @@ class RequestSizeLimitMiddleware:
                 received += len(body)
 
                 if received > max_size:
-                    response = JSONResponse(
-                        status_code=413,
-                        content={"detail": "Request body too large"},
-                    )
-                    await response(scope, receive, send)
-                    return {
-                        "type": "http.disconnect"
-                    }
+                    raise _BodyTooLarge()
 
             return message
 
-        await self.app(scope, limited_receive, send)
+        try:
+            await self.app(scope, limited_receive, send)
+        except _BodyTooLarge:
+            response = JSONResponse(
+                status_code=413,
+                content={"detail": "Request body too large"},
+            )
+
+            async def _empty_receive() -> Message:
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            await response(scope, _empty_receive, send)

@@ -24,7 +24,6 @@ def require_feature(feature_key: str):
             return current_user
 
         service = BillingService(db)
-        await service.ensure_seed_data()
         if not await service.user_has_feature(current_user, feature_key):
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,

@@ -226,3 +226,22 @@ def test_request_size_middleware_rejects_too_large_requests(
 
     assert response.status_code == 413
     assert response.json()["detail"] == "Request body too large"
+
+
+def test_request_size_middleware_rejects_actual_body_too_large(
+    client: TestClient, monkeypatch
+) -> None:
+    """The middleware should reject a body that is too large even when the request has no declared Content-Length."""
+    from backend.core.config import settings
+
+    monkeypatch.setattr(settings, "max_request_size_bytes", 10)
+
+    body = b'{"email":"user@example.com","username":"testuser","password":"StrongPass123!"}'
+    response = client.post(
+        "/api/v1/users/",
+        content=body,
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Request body too large"

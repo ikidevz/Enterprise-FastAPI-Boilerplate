@@ -6,6 +6,9 @@ from backend.observability.logging import logger
 from backend.common.schema import UserCreate, UserOut, UserUpdate
 from backend.domain.events import DomainEvent
 from backend.domain.users.service import UserService
+from backend.domain.billing.service import BillingService
+from backend.domain.billing.models import Plan, Subscription
+from sqlalchemy import select
 
 
 class RegisterUserUseCase:
@@ -22,6 +25,33 @@ class RegisterUserUseCase:
                 "user", message="Username already taken")
 
         user = await self.user_service.create(payload)
+        free_plan = await self.user_service.repository.db.scalar(select(Plan).where(Plan.key == "free"))
+        if free_plan is None:
+            free_plan = Plan(
+                key="free",
+                name="Free",
+                price_cents=0,
+                billing_interval="month",
+                is_active=True,
+            )
+            self.user_service.repository.db.add(free_plan)
+            await self.user_service.repository.db.flush()
+
+        existing_subscription = await self.user_service.repository.db.scalar(
+            select(Subscription).where(
+                Subscription.user_id == user.id,
+                Subscription.plan_id == free_plan.id,
+            )
+        )
+        if existing_subscription is None:
+            self.user_service.repository.db.add(
+                Subscription(
+                    user_id=user.id,
+                    plan_id=free_plan.id,
+                    status="active",
+                    provider="manual",
+                )
+            )
         event = DomainEvent.create({
             "event_type": "user.registered",
             "user_id": user.id,

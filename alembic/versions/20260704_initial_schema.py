@@ -45,7 +45,8 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.String(length=500), nullable=True),
-        sa.Column("price", sa.Float(), nullable=False, server_default="0.0"),
+        sa.Column("price_cents", sa.Integer(),
+                  nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.Column("updated_at", sa.DateTime(timezone=True),
@@ -185,6 +186,8 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("provider", "provider_event_id",
+                            name="uq_payment_events_provider_event"),
     )
     op.create_index(op.f("ix_payment_events_id"),
                     "payment_events", ["id"], unique=False)

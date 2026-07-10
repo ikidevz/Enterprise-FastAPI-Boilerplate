@@ -71,6 +71,7 @@ async def assign_roles_to_user(
     service = RbacService(db)
     try:
         await service.validate_assignment_scope(current_user, permission_keys=["rbac.manage"])
+        await service.ensure_admins_remain(user_id=user_id)
         await service.assign_roles_to_user(
             user_id=user_id,
             role_ids=payload.get("role_ids", []),

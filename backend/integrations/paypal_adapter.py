@@ -38,8 +38,8 @@ class PayPalAdapter(PaymentGatewayPort):
         }
 
     def verify_webhook_signature(self, *, payload: bytes, signature_header: str) -> dict:
-        secret = settings.paypal_client_secret or settings.paypal_webhook_id or "dev-paypal-webhook-secret"
-        if not signature_header or not secret:
+        secret = settings.paypal_webhook_id or settings.paypal_client_secret
+        if not secret:
             return {"verified": False, "payload": payload.decode("utf-8", errors="ignore"), "signature": signature_header}
 
         signature_value = signature_header.strip()

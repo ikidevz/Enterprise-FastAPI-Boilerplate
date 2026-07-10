@@ -5,6 +5,8 @@ import hmac
 import json
 import time
 
+import pytest
+
 from backend.core.config import settings
 from conftest import login_user, register_user, wait_for_background_jobs
 
@@ -168,11 +170,14 @@ def test_billing_metrics_report_price_weighted_mrr(client):
     assert metrics_response.json()["mrr_cents"] == 3500
 
 
-def test_failed_payment_webhook_marks_subscription_past_due_and_notifies_user(client):
+def test_failed_payment_webhook_marks_subscription_past_due_and_notifies_user(client, monkeypatch):
     register_user(client, email="failed-payment-admin@example.com",
                   username="failed-payment-admin", role="admin")
     user = register_user(client, email="failed-payment-user@example.com",
                          username="failed-payment-user")
+
+    monkeypatch.setattr(settings, "stripe_webhook_secret",
+                        "test-stripe-webhook-secret")
 
     admin_headers = {
         "Authorization": f"Bearer {login_user(client, email='failed-payment-admin@example.com')}"}
@@ -207,7 +212,8 @@ def test_failed_payment_webhook_marks_subscription_past_due_and_notifies_user(cl
     payload_bytes = json.dumps(payload, separators=(
         ",", ":"), sort_keys=True).encode("utf-8")
     timestamp = str(int(time.time()))
-    signing_secret = settings.stripe_webhook_secret or "dev-stripe-webhook-secret"
+    signing_secret = settings.stripe_webhook_secret
+    assert signing_secret is not None
     signature = hmac.new(
         signing_secret.encode("utf-8"),
         f"{timestamp}.{payload_bytes.decode('utf-8')}".encode("utf-8"),
@@ -301,11 +307,14 @@ def test_webhook_requires_a_signature_header(client):
     assert response.json()["error"] == "invalid_webhook_signature"
 
 
-def test_webhook_is_idempotent_and_persists_event(client):
+def test_webhook_is_idempotent_and_persists_event(client, monkeypatch):
     register_user(client, email="webhook-admin@example.com",
                   username="webhook-admin", role="admin")
     user = register_user(
         client, email="webhook-user@example.com", username="webhook-user")
+
+    monkeypatch.setattr(settings, "stripe_webhook_secret",
+                        "test-stripe-webhook-secret")
 
     admin_headers = {
         "Authorization": f"Bearer {login_user(client, email='webhook-admin@example.com')}"}
@@ -328,7 +337,8 @@ def test_webhook_is_idempotent_and_persists_event(client):
     payload_bytes = json.dumps(payload, separators=(
         ",", ":"), sort_keys=True).encode("utf-8")
     timestamp = str(int(time.time()))
-    signing_secret = settings.stripe_webhook_secret or "dev-stripe-webhook-secret"
+    signing_secret = settings.stripe_webhook_secret
+    assert signing_secret is not None
     signature = hmac.new(
         signing_secret.encode("utf-8"),
         f"{timestamp}.{payload_bytes.decode('utf-8')}".encode("utf-8"),

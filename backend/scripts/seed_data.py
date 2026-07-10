@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.core.config import settings
 from backend.database.base import Base
+from backend.domain.billing.service import BillingService
 from backend.domain.products.model import Product
 from backend.domain.users.model import User
 from backend.domain.users.repository import UserRepository
@@ -39,6 +40,9 @@ async def seed(engine=None) -> None:
                     permissions=["manage:users", "manage:products"],
                 )
                 session.add(admin)
+
+            billing_service = BillingService(session)
+            await billing_service.ensure_seed_data()
 
             if not await session.scalar(select(Product).limit(1)):
                 session.add_all(

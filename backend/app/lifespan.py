@@ -10,6 +10,8 @@ from backend.common.exporters import export_metrics
 from backend.observability.logging import logger
 from backend.database import session as db_session
 from backend.database.base import Base
+from backend.domain.rbac.service import RbacService
+from backend.domain.billing.service import BillingService
 
 
 def build_lifespan(rate_limiter, *, registry: BootstrapRegistry | None = None):
@@ -27,6 +29,18 @@ def build_lifespan(rate_limiter, *, registry: BootstrapRegistry | None = None):
 
         if registry is not None:
             await registry.run_startup_hooks(app)
+
+        try:
+            async with db_session.SessionLocal() as db:
+                async with db.begin():
+                    rbac_service = RbacService(db)
+                    await rbac_service.ensure_seed_data()
+                    billing_service = BillingService(db)
+                    await billing_service.ensure_seed_data()
+        except Exception as exc:
+            logger.error("startup_seed_failed", extra={"error": str(exc)})
+            raise
+
         export_metrics()
         yield
         if registry is not None:

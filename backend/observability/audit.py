@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import asyncio
 from datetime import datetime, timezone
 from typing import Any
@@ -23,10 +24,22 @@ class AuditLogger:
         self._persist_path = Path(persist_path or "logs/audit.jsonl")
         self._persist_path.parent.mkdir(parents=True, exist_ok=True)
 
+        self._file_logger = logging.getLogger("tier4.audit.file")
+        self._file_logger.propagate = False
+        self._file_logger.setLevel(logging.INFO)
+        if not self._file_logger.handlers:
+            handler = logging.handlers.RotatingFileHandler(
+                self._persist_path,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+            )
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            self._file_logger.addHandler(handler)
+
     def _persist(self, entry: dict[str, Any]) -> None:
         try:
-            with self._persist_path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, default=str) + "\n")
+            self._file_logger.info(json.dumps(entry, default=str))
         except OSError as exc:
             self.logger.error(
                 "audit_persist_failed",

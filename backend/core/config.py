@@ -8,6 +8,8 @@ from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ALLOWED_ENVIRONMENTS = {"dev", "staging", "prod"}
+_INSECURE_WEBHOOK_DEFAULTS = {
+    "replace-me", "dev-stripe-webhook-secret", "dev-paypal-webhook-secret", ""}
 
 
 def _parse_string_list(value: Any) -> List[str]:
@@ -78,7 +80,10 @@ class Settings(BaseSettings):
 
     project_name: str = Field(default="Tier 4 Architecture")
     api_v1_str: str = Field(default="/api/v1")
-    environment: str = Field(default="dev")
+    environment: str = Field(
+        default="dev",
+        validation_alias=AliasChoices("ENVIRONMENT", "APP_ENV", "environment"),
+    )
     app_env: str = Field(
         default="dev", validation_alias=AliasChoices("APP_ENV", "app_env"))
     database_url: str = Field(
@@ -256,6 +261,14 @@ class Settings(BaseSettings):
             if self.default_admin_password == "Admin123!":
                 raise ValueError(
                     f"DEFAULT_ADMIN_PASSWORD must be changed in {self.environment}")
+            if "stripe" in self.payment_providers_enabled:
+                if (self.stripe_webhook_secret or "") in _INSECURE_WEBHOOK_DEFAULTS:
+                    raise ValueError(
+                        f"STRIPE_WEBHOOK_SECRET must be set to a real secret in {self.environment}")
+            if "paypal" in self.payment_providers_enabled:
+                if (self.paypal_webhook_id or self.paypal_client_secret or "") in _INSECURE_WEBHOOK_DEFAULTS:
+                    raise ValueError(
+                        f"PAYPAL_WEBHOOK_ID/PAYPAL_CLIENT_SECRET must be set to a real secret in {self.environment}")
         return self
 
     @model_validator(mode="after")
@@ -327,7 +340,7 @@ def get_settings() -> Settings:
         os.environ["SECRET_KEY"] = resolved_secret_key
 
     settings = Settings()
-    if settings.environment != settings.app_env:
+    if os.getenv("APP_ENV") is None and settings.app_env == "dev":
         settings.app_env = settings.environment
     settings.database_url = _read_secret_value(
         settings.database_url, settings.database_url_file) or settings.database_url
@@ -335,7 +348,6 @@ def get_settings() -> Settings:
         settings.redis_url, settings.redis_url_file) or settings.redis_url
     settings.secret_key = _read_secret_value(
         settings.secret_key, settings.secret_key_file) or settings.secret_key
-    settings.cors_origins = _parse_string_list(settings.cors_origins)
     settings.cors_origins = _parse_string_list(settings.cors_origins)
     settings.trusted_proxy_ips = _parse_string_list(
         settings.trusted_proxy_ips)

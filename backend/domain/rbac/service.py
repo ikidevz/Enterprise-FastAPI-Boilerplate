@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.rbac.models import Permission, Role, RolePermission, UserRole
 from backend.domain.users.model import User
+
+_rbac_seed_lock = asyncio.Lock()
+_rbac_seed_initialized = False
 
 
 class RbacPermissionError(ValueError):
@@ -16,29 +21,38 @@ class RbacService:
         self.db = db
 
     async def ensure_seed_data(self) -> None:
-        roles = [
-            {"key": "user", "name": "User",
-                "description": "Default user role", "is_system": True},
-            {"key": "staff", "name": "Staff",
-                "description": "Staff role", "is_system": True},
-            {"key": "admin", "name": "Admin",
-                "description": "Administrative role", "is_system": True},
-        ]
-        for payload in roles:
-            existing = await self.db.scalar(select(Role).where(Role.key == payload["key"]))
-            if existing is None:
-                self.db.add(Role(**payload))
+        global _rbac_seed_initialized
+        if _rbac_seed_initialized:
+            return
 
-        permissions = [
-            {"key": "rbac.manage", "name": "Manage RBAC"},
-            {"key": "billing.manage", "name": "Manage Billing"},
-            {"key": "system.billing_toggle", "name": "Toggle Billing System"},
-        ]
-        for payload in permissions:
-            existing = await self.db.scalar(select(Permission).where(Permission.key == payload["key"]))
-            if existing is None:
-                self.db.add(Permission(**payload))
-        await self.db.commit()
+        async with _rbac_seed_lock:
+            if _rbac_seed_initialized:
+                return
+
+            roles = [
+                {"key": "user", "name": "User",
+                    "description": "Default user role", "is_system": True},
+                {"key": "staff", "name": "Staff",
+                    "description": "Staff role", "is_system": True},
+                {"key": "admin", "name": "Admin",
+                    "description": "Administrative role", "is_system": True},
+            ]
+            for payload in roles:
+                existing = await self.db.scalar(select(Role).where(Role.key == payload["key"]))
+                if existing is None:
+                    self.db.add(Role(**payload))
+
+            permissions = [
+                {"key": "rbac.manage", "name": "Manage RBAC"},
+                {"key": "billing.manage", "name": "Manage Billing"},
+                {"key": "system.billing_toggle", "name": "Toggle Billing System"},
+            ]
+            for payload in permissions:
+                existing = await self.db.scalar(select(Permission).where(Permission.key == payload["key"]))
+                if existing is None:
+                    self.db.add(Permission(**payload))
+            await self.db.flush()
+            _rbac_seed_initialized = True
 
     async def create_role(self, *, key: str, name: str, description: str | None = None) -> Role:
         await self.ensure_seed_data()
@@ -155,7 +169,6 @@ class RbacService:
                     "cannot remove the last admin role from a user")
 
     async def user_has_permission(self, user: User, permission_key: str) -> bool:
-        await self.ensure_seed_data()
         if user.is_superuser:
             return True
         if isinstance(user.permissions, list) and permission_key in user.permissions:

@@ -37,8 +37,8 @@ class StripeAdapter(PaymentGatewayPort):
         }
 
     def verify_webhook_signature(self, *, payload: bytes, signature_header: str) -> dict:
-        secret = settings.stripe_webhook_secret or "dev-stripe-webhook-secret"
-        if not signature_header or not secret:
+        secret = settings.stripe_webhook_secret
+        if not secret:
             return {"verified": False, "payload": payload.decode("utf-8", errors="ignore"), "signature": signature_header}
 
         parts: dict[str, str] = {}

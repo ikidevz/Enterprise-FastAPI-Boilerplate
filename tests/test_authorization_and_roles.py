@@ -1,12 +1,29 @@
+import asyncio
+from typing import Iterator
+
 import pytest
 from fastapi.testclient import TestClient
 
 from conftest import auth_headers, login_user, register_user
 from backend.core.security.rbac import AuthorizationPolicy, require_policy
 from backend.database import session as db_session
+from backend.domain.rbac import service as rbac_service_module
 from backend.domain.rbac.service import RbacService
 from backend.domain.users.model import User
-from backend.domain.users.model import User
+
+
+@pytest.fixture(autouse=True)
+def ensure_rbac_seed_data(client: TestClient) -> Iterator[None]:
+    """Ensure the default RBAC roles exist in the per-test database."""
+    rbac_service_module._rbac_seed_initialized = False
+
+    async def _seed() -> None:
+        async with db_session.SessionLocal() as db:
+            await RbacService(db).ensure_seed_data()
+            await db.commit()
+
+    asyncio.run(_seed())
+    yield
 
 
 def _make_user(**overrides) -> User:
@@ -26,32 +43,36 @@ def _make_user(**overrides) -> User:
     return User(**defaults)
 
 
-def test_superuser_is_always_allowed_regardless_of_role_or_permissions() -> None:
+@pytest.mark.asyncio
+async def test_superuser_is_always_allowed_regardless_of_role_or_permissions() -> None:
     """Ensures superuser is always allowed regardless of role or permissions."""
     policy = AuthorizationPolicy(required_roles=(
         "admin",), required_permissions=("read:admin",))
     superuser = _make_user(is_superuser=True, role="user", permissions=[])
 
-    assert policy.allows(superuser) is True
+    assert await policy.allows(superuser) is True
 
 
-def test_user_without_the_required_permission_is_denied() -> None:
+@pytest.mark.asyncio
+async def test_user_without_the_required_permission_is_denied() -> None:
     """Ensures user without the required permission is denied."""
     policy = AuthorizationPolicy(required_permissions=("read:admin",))
     regular_user = _make_user(permissions=[])
 
-    assert policy.allows(regular_user) is False
+    assert await policy.allows(regular_user) is False
 
 
-def test_user_with_the_required_permission_is_allowed() -> None:
+@pytest.mark.asyncio
+async def test_user_with_the_required_permission_is_allowed() -> None:
     """Ensures user with the required permission is allowed."""
     policy = AuthorizationPolicy(required_permissions=("read:admin",))
     permitted_user = _make_user(permissions=["read:admin"])
 
-    assert policy.allows(permitted_user) is True
+    assert await policy.allows(permitted_user) is True
 
 
-def test_role_check_is_based_on_the_role_field_not_the_username() -> None:
+@pytest.mark.asyncio
+async def test_role_check_is_based_on_the_role_field_not_the_username() -> None:
     """Ensures role check is based on the role field not the username."""
     policy = AuthorizationPolicy(required_roles=("admin",))
 
@@ -62,8 +83,8 @@ def test_role_check_is_based_on_the_role_field_not_the_username() -> None:
         username="admin", role="user", permissions=[]
     )
 
-    assert policy.allows(real_admin_with_an_unrelated_username) is True
-    assert policy.allows(regular_user_who_happens_to_be_named_admin) is False
+    assert await policy.allows(real_admin_with_an_unrelated_username) is True
+    assert await policy.allows(regular_user_who_happens_to_be_named_admin) is False
 
 
 def test_admin_users_endpoint_is_reachable_by_the_seeded_style_admin_account(
@@ -154,6 +175,22 @@ def test_regular_user_cannot_list_all_users(client: TestClient) -> None:
     admin_response = client.get("/api/v1/users/",
                                 headers=auth_headers(admin_token))
     assert admin_response.status_code == 200
+
+
+def test_cannot_remove_last_admin_role_via_admin_user_endpoint(client: TestClient) -> None:
+    """The API should prevent removing the last admin role from the final admin user."""
+    register_user(client, email="single-admin@example.com",
+                  username="single-admin", role="admin")
+    admin_token = login_user(client, email="single-admin@example.com")
+
+    response = client.patch(
+        "/api/v1/admin/users/1/role",
+        headers=auth_headers(admin_token),
+        json={"role": "user", "permissions": []},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "insufficient_permission"
 
 
 def test_create_product_requires_admin_role(client: TestClient) -> None:

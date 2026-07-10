@@ -73,3 +73,65 @@ def test_alembic_head_creates_rbac_and_billing_tables(tmp_path) -> None:
     }
     missing = expected - tables
     assert not missing, f"Migration is missing tables: {sorted(missing)}"
+
+
+def test_alembic_head_migrates_product_price_to_price_cents(tmp_path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "product_price_migration.db"
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-x",
+            f"sqlalchemy.url=sqlite:///{db_path}", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {
+            row[1]: row[2]
+            for row in conn.execute(
+                "PRAGMA table_info('products')"
+            )
+        }
+
+    assert "price_cents" in columns, "Migration must include products.price_cents"
+    assert "price" not in columns, "Migration must not leave a floating-point products.price column"
+    assert columns["price_cents"].upper() in {"INTEGER", "INT"}
+
+
+def test_alembic_head_preserves_payment_event_unique_constraint(tmp_path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "migration_constraints.db"
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-x",
+            f"sqlalchemy.url=sqlite:///{db_path}", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    with sqlite3.connect(db_path) as conn:
+        unique_indexes = [
+            row[1]
+            for row in conn.execute(
+                "PRAGMA index_list('payment_events')"
+            )
+            if row[2] == 1
+        ]
+
+        unique_columns = []
+        for index_name in unique_indexes:
+            columns = [
+                row[2]
+                for row in conn.execute(
+                    f"PRAGMA index_info('{index_name}')"
+                )
+            ]
+            unique_columns.append(set(columns))
+
+    assert any(
+        columns == {"provider", "provider_event_id"}
+        for columns in unique_columns
+    ), "Migration must preserve the payment_events unique constraint"

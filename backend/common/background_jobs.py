@@ -146,6 +146,7 @@ class BackgroundJobManager:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            self._queue_backend.enqueue(job)
             return
         if self._loop is None or self._loop is not loop:
             self._loop = loop

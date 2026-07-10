@@ -5,6 +5,7 @@ import json
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.common.background_jobs import enqueue_billing_notification
@@ -21,6 +22,8 @@ from backend.observability.audit import audit_logger
 from backend.resilience.idempotency import get_idempotency_store
 
 router = APIRouter(prefix="/billing", tags=["billing"])
+
+IDEMPOTENCY_STORE = get_idempotency_store()
 
 
 @router.post("/admin/plans", status_code=status.HTTP_201_CREATED)
@@ -121,10 +124,13 @@ async def update_billing_settings(
         "subscriptions_enabled": settings.subscriptions_enabled,
         "payment_providers_enabled": settings.payment_providers_enabled,
     })
-    return {
+    response = {
         "subscriptions_enabled": settings.subscriptions_enabled,
         "payment_providers_enabled": settings.payment_providers_enabled,
     }
+    if settings.environment != "dev":
+        response["warning"] = "Billing toggles are process-local and not persisted across restarts or workers."
+    return response
 
 
 @router.get("/admin/billing/metrics")
@@ -381,7 +387,6 @@ async def feature_check(
         )
     if settings.subscriptions_enabled and not current_user.is_superuser:
         service = BillingService(db)
-        await service.ensure_seed_data()
         if not await service.user_has_feature(current_user, feature_key):
             return JSONResponse(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -411,6 +416,11 @@ async def stripe_webhook(
     if adapter is None:
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "unsupported_provider"})
 
+    if not event_id:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "invalid_event_id"})
+    if not signature_header:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "invalid_webhook_signature"})
+
     payload_bytes = json.dumps(payload, separators=(
         ",", ":"), sort_keys=True).encode("utf-8")
     verification = adapter.verify_webhook_signature(
@@ -418,8 +428,7 @@ async def stripe_webhook(
     if not verification.get("verified", False):
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "invalid_webhook_signature"})
 
-    store = get_idempotency_store()
-    existing_key = await store.get(f"{provider}:{event_id}")
+    existing_key = await IDEMPOTENCY_STORE.get(f"{provider}:{event_id}")
     if existing_key is not None:
         return {"processed": False, "duplicate": True, "event_id": event_id}
 
@@ -428,7 +437,7 @@ async def stripe_webhook(
                                    provider, PaymentEvent.provider_event_id == event_id)
     )
     if existing is not None:
-        await store.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})
+        await IDEMPOTENCY_STORE.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})
         return {"processed": False, "duplicate": True, "event_id": event_id}
 
     event = PaymentEvent(
@@ -438,7 +447,12 @@ async def stripe_webhook(
         payload=json.dumps(payload),
     )
     db.add(event)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        await IDEMPOTENCY_STORE.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})
+        return {"processed": False, "duplicate": True, "event_id": event_id}
 
     if event_type == "checkout.session.completed":
         subscription = Subscription(
@@ -471,5 +485,5 @@ async def stripe_webhook(
             )
 
     await db.commit()
-    await store.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})
+    await IDEMPOTENCY_STORE.set(f"{provider}:{event_id}", {"event_id": event_id, "provider": provider})
     return {"processed": True, "duplicate": False, "event_id": event_id}

@@ -53,6 +53,22 @@ def test_staging_profile_can_use_a_non_default_admin_password(monkeypatch) -> No
         get_settings.cache_clear()
 
 
+def test_app_env_only_aliases_environment(monkeypatch) -> None:
+    """APP_ENV must drive the effective environment when ENVIRONMENT is unset."""
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("SECRET_KEY", "from-env")
+    monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", "StrongTestAdminPw123!")
+
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.environment == "staging"
+        assert settings.app_env == "staging"
+    finally:
+        get_settings.cache_clear()
+
+
 def test_upload_backend_s3_requires_credentials(monkeypatch) -> None:
     """Ensures upload backend s3 requires credentials."""
     monkeypatch.setenv("UPLOAD_BACKEND", "s3")
