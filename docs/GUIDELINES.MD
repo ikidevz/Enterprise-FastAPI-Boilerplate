@@ -621,7 +621,8 @@ This assumes ~1–2 focused hours per "day." Skip ahead if something's already f
 1. Read the "User and admin workflows" section of `README.md`.
 2. Open `backend/core/security/rbac.py` and find `require_role` and `require_permission`. Notice they're both just `Depends(...)`-compatible functions used to _guard_ a route.
 3. Walk through the decision tree in [§9](#9-security-and-permissions-visually) with a concrete example: try calling `GET /api/v1/admin/users` as a non-admin and confirm you get a `403`.
-4. **Goal for today:** understand the difference between "your `role` is `admin`" (a broad label) and "you hold the `billing.manage` permission" (a specific, checkable grant) — this project uses both.
+4. There's also a separate, dynamic RBAC management API — `backend/app/api/v1/rbac/router.py` — for creating roles/permissions and assigning them to users at runtime (`POST /api/v1/admin/roles`, `POST /api/v1/admin/permissions`, `PUT /api/v1/admin/roles/{role_id}/permissions`, `POST /api/v1/admin/users/{user_id}/roles`), gated by the `rbac.manage` permission and backed by `backend/domain/rbac/service.py`. It's a second, independent layer from the static `role`/`permissions` fields you just saw updated via `PATCH /api/v1/admin/users/{user_id}/role` — worth a quick look in `/docs` even if you don't exercise it today.
+5. **Goal for today:** understand the difference between "your `role` is `admin`" (a broad label) and "you hold the `billing.manage` permission" (a specific, checkable grant) — this project uses both.
 
 ### Day 6 — The billing/subscription feature (the most advanced example)
 

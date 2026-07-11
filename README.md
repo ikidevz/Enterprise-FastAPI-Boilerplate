@@ -625,6 +625,25 @@ curl "http://127.0.0.1:8000/api/v1/billing/feature-check?feature=reports.export"
   -H "Authorization: Bearer <access_token>"
 ```
 
+### RBAC (`backend/app/api/v1/rbac/router.py`)
+
+A second, dynamic admin surface for managing roles and permissions at runtime — separate from the static `role`/`permissions` fields updated via `PATCH /admin/users/{user_id}/role` below. All write routes require the `rbac.manage` permission.
+
+| Method | Path                                 | Auth                  | Body / query                     | Success response                                                                                                          |
+| ------ | ------------------------------------ | --------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/roles`                       | Bearer, `rbac.manage` | JSON `{ key, name? }`            | `201` → `{ id, key, name }`                                                                                               |
+| POST   | `/admin/permissions`                 | Bearer, `rbac.manage` | JSON `{ key, name? }`            | `201` → `{ id, key, name }`                                                                                               |
+| PUT    | `/admin/roles/{role_id}/permissions` | Bearer, `rbac.manage` | JSON `{ permission_ids: int[] }` | `200` → `{ role_id, permission_ids }`; replaces the role's permission set                                                 |
+| POST   | `/admin/users/{user_id}/roles`       | Bearer, `rbac.manage` | JSON `{ role_ids: int[] }`       | `200` → `{ user_id, role_ids }`; blocked (`403`) if it would leave zero admins in the system                              |
+| GET    | `/rbac/check-permission`             | Bearer                | —                                | `200` → `{ allowed: bool }` for a hardcoded `reports.view` permission check — useful as a smoke test, not general-purpose |
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/admin/roles" \
+  -H "Authorization: Bearer <admin_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"key": "billing_ops", "name": "Billing Operations"}'
+```
+
 ### Admin (`backend/app/api/v1/admin/router.py`)
 
 | Method | Path                                  | Auth                                       | Body / query                     | Success response                                                                                                                             |
@@ -656,7 +675,7 @@ curl -X PATCH "http://127.0.0.1:8000/api/v1/admin/users/2/role" \
 - **Bearer auth**: every protected route depends on `get_current_active_user` (`backend/core/security/dependencies.py`), which validates the JWT, checks it against the revocation store, and loads the user.
 - **Role checks**: `require_role("admin")` / `require_role("admin", "staff")` (`backend/core/security/rbac.py`) allow the given `role` values or any `is_superuser` account.
 - **Ownership checks**: user and upload routes additionally compare the resource's owner id against the caller (or require `is_superuser`) directly in the route handler.
-- **Fine-grained permissions**: the `permissions: list[str]` field on `User` plus `AuthorizationPolicy`/`require_policy` exist for policies that need more than a role name, though no current route uses `require_policy` — `require_role` covers every route in this codebase today.
+- **Fine-grained permissions**: `require_permission(*permission_keys)` (`backend/core/security/rbac.py`) checks the `permissions: list[str]` field on `User` (or `is_superuser`) against a permission key rather than a role name, and gates every `billing.manage` route (see [Billing and subscriptions](#billing-and-subscriptions)) plus the RBAC-management routes above — it's not a hypothetical, it's live on real routes today. Separately, `AuthorizationPolicy`/`require_policy` also exist in the same module but nothing currently calls `require_policy`.
 
 ### Error shape
 
@@ -693,10 +712,16 @@ The full walkthrough with the reasoning behind each step is in [DOCUMENTATION.md
 
 ## Testing
 
-Requires the `dev` extra (it pulls in `aiosqlite`, which the test suite's in-memory SQLite fixtures depend on but which isn't part of the base `requirements.txt`):
+Requires the `dev` extra (it pulls in `aiosqlite`, which the test suite's in-memory SQLite fixtures depend on):
 
 ```bash
 pip install -e .[dev]
+```
+
+This alone isn't quite enough for a clean run today — see the dependency-manifest gaps under [known limitations](#before-you-ship-this-known-limitations) below (`email-validator`/`python-multipart`/`prometheus_client` missing from `pyproject.toml`, `pytest-asyncio` missing from the `dev` extra). Until those are added, also run:
+
+```bash
+pip install email-validator python-multipart prometheus_client pytest-asyncio
 ```
 
 Run the full suite with:
@@ -739,7 +764,9 @@ This is a boilerplate, and boilerplates get copied into real projects wholesale 
 
 - **Most previously-known security gaps in this boilerplate are already fixed in the current code** — public registration already can't self-assign `role`/`permissions` (`UserCreate` forbids extra fields), uploaded filenames are already UUID-generated with path-traversal protection and per-owner access checks (no public static mount), login lockout and Socket.IO auth already avoid enumeration/stale-token gaps, and `/metrics`/`/runtime` already require an admin token.
 - **Four items previously flagged as open have since been fixed in the source** and are safe to treat as resolved: `aiosqlite` is now declared in the `dev` extra in `pyproject.toml` (so `pip install -e .[dev] && pytest -q` works out of the box); `backend/resilience/retry.py`'s `CircuitBreaker` is now wired into `SMTPEmailTransport` (`backend/infrastructure/email/transport.py`); `BaseRepository.create()`/`update()` (`backend/common/base_repository.py`) no longer accept a raw `dict` — `create()` requires a model instance or a schema with `model_dump()`, and `update()` requires a schema, closing the mass-assignment path; and the insecure-default guard in `backend/core/config.py` (`_reject_insecure_prod_defaults`) now fires for both `environment=prod` **and** `environment=staging`.
-- **What's still genuinely open today:** `ruff check backend tests` currently reports 12 lint errors — down from a previously-reported 24 — all confined to `tests/` (unused `pytest` imports and a `client` fixture re-imported then redefined in a few files), 5 of which are auto-fixable with `ruff check backend tests --fix`. This would still block the CI workflow's Lint step before tests run, but it's a test-only cleanup, not an application-code issue.
+- **What's still genuinely open today:** `ruff check backend tests` currently reports **2** lint errors — down from a previously-reported 12, which was itself down from 24 — both auto-fixable with `ruff check backend tests --fix`: an unused `BillingService` import in `backend/application/users/use_cases.py`, and an unused `pytest` import in `tests/test_billing_hardening.py`. This still blocks the CI workflow's Lint step before tests run, but it's now a two-line fix.
+- **Two runtime dependencies used by the app aren't declared in `pyproject.toml`, and one isn't declared anywhere:** `email-validator` (Pydantic `EmailStr` validation) and `python-multipart` (FastAPI form/multipart handling) are in `requirements.txt` but missing from `pyproject.toml`'s `dependencies`, so `pip install -e .` alone doesn't reliably pull them in — verified by a fresh install, which fails at import time on both. `prometheus_client`, imported directly by `backend/observability/metrics.py` to back the `/metrics` endpoint's Prometheus text format, is in **neither** manifest. `pytest-asyncio`, required by the `@pytest.mark.asyncio`-marked tests in `tests/test_authorization_and_roles.py` and `tests/test_payment_adapters.py`, is also missing from the `dev` extra — without it those tests are silently skipped rather than run.
+- **Neither manifest pins an upper dependency version, and that's now causing real breakage:** a fresh, unpinned install today (July 2026) resolves `starlette` to a new `1.3.1` major release, which requires `httpx` explicitly installed for `starlette.testclient` to import, and `aiosqlite` to `0.22.1`, which reproducibly fails 4–5 tests in `test_billing_hardening.py`/`test_rbac_and_subscription_regression.py` with `sqlite3.OperationalError: cannot commit transaction - SQL statements in progress` under concurrent async-session use. Pinning upper bounds (or at least documenting known-good ranges) would prevent this from surprising the next person who runs `pip install`.
 - **Rate limiting is Redis-backed outside of local dev**, with an in-memory fallback if Redis becomes unreachable (fails open to degraded limiting, not a full outage) — the only remaining single-process ceiling is in `dev` or during a Redis outage.
 - **Tracing and metrics are lightweight by design** — the tracing hooks produce structured logs today, not a wired-up OpenTelemetry exporter pipeline, and `/metrics`/`/runtime` are process-local snapshots (though they are admin-authenticated), not a Prometheus-scrape endpoint or cross-instance aggregate.
 - **Cloud upload backends already exist** — `UploadStorage`'s `S3UploadStorage`/`AzureUploadStorage` implementations live in `backend/infrastructure/upload_storage.py` today; switching from local disk is a matter of setting `UPLOAD_BACKEND=s3` (or `azure`) plus the matching credentials, not writing new code. Downloading through the API when a remote backend is active isn't implemented yet (`GET /api/v1/uploads/{stored_name}` returns `501` for non-`local` backends) — issue a signed URL from the provider instead.
@@ -748,7 +775,8 @@ This is a boilerplate, and boilerplates get copied into real projects wholesale 
 
 ## Roadmap
 
-- Clean up the remaining `ruff` lint errors in `tests/` (unused imports, a redefined `client` fixture) so CI's lint step goes green
+- Clean up the two remaining `ruff` lint errors (an unused import in `backend/application/users/use_cases.py`, an unused import in `tests/test_billing_hardening.py`) so CI's lint step goes green
+- Add `email-validator`, `python-multipart`, and `prometheus_client` to `pyproject.toml`'s `dependencies`, add `pytest-asyncio` to its `dev` extra, and pin upper bounds (or a tested range) on the rest — a fresh `pip install` today pulls a `starlette` major bump and an `aiosqlite` release that together break several tests out of the box
 - Wire up a real OpenTelemetry SDK + OTLP exporter for auth, database, Redis, and Socket.IO boundaries, replacing today's logging-only span bridge
 - Move rate limiting fully onto Redis in every environment (not just `environment != "dev"`), so local dev exercises the same code path as production
 - Implement download proxying (or signed-URL issuance) for `GET /api/v1/uploads/{stored_name}` when a remote (`s3`/`azure`) upload backend is active — the storage backends themselves already exist, this is the missing read path
@@ -761,9 +789,7 @@ This is a boilerplate, and boilerplates get copied into real projects wholesale 
 
 ## Documentation
 
-For the full architecture walkthrough, request-lifecycle trace, complete endpoint/config reference, and the detailed known-limitations writeup, see [DOCUMENTATION.md](docs/DOCUMENTATION.md).
-
-For a prioritized backlog of concrete feature and hardening suggestions (with exact files and suggested changes), see [SUGGESTED_IMPROVEMENTS.md](SUGGESTED_IMPROVEMENTS.md).
+For the full architecture walkthrough, request-lifecycle trace, complete endpoint/config reference, and the detailed known-limitations writeup, see [DOCUMENTATION.md](docs/DOCUMENTATION.md). The [Roadmap](#roadmap) section above is the current backlog of concrete feature and hardening suggestions — an earlier revision of this README linked out to a separate `SUGGESTED_IMPROVEMENTS.md`, which doesn't exist in this repository; that link has been removed.
 
 ## Contributing
 
