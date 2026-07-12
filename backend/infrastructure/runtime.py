@@ -36,6 +36,10 @@ class PlatformRuntime:
 
         self.event_bus.subscribe("user.registered", log_domain_event)
 
+    def reset_event_bus(self) -> None:
+        self.event_bus = EventBus()
+        self._register_default_handlers()
+
     def build_runtime_snapshot(self, *, environment: str) -> dict[str, object]:
         export_metrics()
         metrics_snapshot = self.metrics_collector.snapshot()
@@ -98,6 +102,11 @@ def build_infrastructure_registry(rate_limiter: Any) -> BootstrapRegistry:
         app.state.email_service = email_delivery_service
         app.state.rate_limiter = rate_limiter
         app.state.upload_storage = upload_storage
+
+        from backend.infrastructure.webhooks.dispatcher import subscribe_webhook_dispatcher
+
+        platform_runtime.reset_event_bus()
+        subscribe_webhook_dispatcher(platform_runtime.event_bus)
 
     async def clear_runtime_state(app: Any) -> None:
         app.state.runtime = {}

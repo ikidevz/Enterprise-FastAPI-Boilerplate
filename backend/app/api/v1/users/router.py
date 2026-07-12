@@ -59,6 +59,14 @@ async def list_users(
     )
 
 
+@router.get("/me", response_model=UserOut)
+async def read_current_user(
+    current_user: User = Depends(get_current_active_user),
+    service: UserService = Depends(get_user_service),
+) -> UserOut:
+    return service.to_public(current_user)
+
+
 @router.get("/{user_id}", response_model=UserOut)
 async def read_user(
     user_id: int,

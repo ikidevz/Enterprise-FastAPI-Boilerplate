@@ -9,13 +9,19 @@ everything else builds on top of it.
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
+import uuid
+from pathlib import Path
 from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 import backend.main as main_module
+from backend.app.factory import create_app
 from backend.observability.audit import audit_logger
 from backend.common.background_jobs import background_job_manager
 from backend.resilience.rate_limit import shared_rate_limiter
@@ -62,6 +68,8 @@ def reset_shared_singletons() -> Iterator[None]:
     _reset_audit_logger()
     _reset_background_job_manager()
     _reset_token_stores()
+    _reset_rbac_seed_initialization()
+    _reset_billing_seed_initialization()
 
     yield
 
@@ -69,6 +77,8 @@ def reset_shared_singletons() -> Iterator[None]:
     _reset_audit_logger()
     _reset_background_job_manager()
     _reset_token_stores()
+    _reset_rbac_seed_initialization()
+    _reset_billing_seed_initialization()
 
 
 def _reset_audit_logger() -> None:
@@ -80,16 +90,37 @@ def _reset_audit_logger() -> None:
 
 
 def _reset_background_job_manager() -> None:
-    """Drop any queued-but-not-yet-run background jobs from a previous test."""
-    queue = getattr(background_job_manager, "_queue", None)
-    if queue is None:
-        return
-    while True:
-        try:
-            queue.get_nowait()
-            queue.task_done()
-        except Exception:
-            break
+    """Reset the shared background job manager to a clean state."""
+    try:
+        asyncio.run(background_job_manager.reset())
+    except RuntimeError:
+        # If the current thread already has a running loop, just clear any
+        # pending items and leave the manager in a best-effort clean state.
+        queue = getattr(background_job_manager, "_queue", None)
+        if queue is None:
+            return
+        while True:
+            try:
+                queue.get_nowait()
+                queue.task_done()
+            except Exception:
+                break
+
+
+def _reset_rbac_seed_initialization() -> None:
+    """Reset RBAC seed state so each test can re-seed its isolated DB."""
+    from backend.domain.rbac import service as rbac_service
+
+    if hasattr(rbac_service, "_rbac_seed_initialized"):
+        setattr(rbac_service, "_rbac_seed_initialized", False)
+
+
+def _reset_billing_seed_initialization() -> None:
+    """Reset billing seed state so each test can re-seed its isolated DB."""
+    from backend.domain.billing import service as billing_service
+
+    if hasattr(billing_service, "_billing_seed_initialized"):
+        setattr(billing_service, "_billing_seed_initialized", False)
 
 
 def _reset_token_stores() -> None:
@@ -125,10 +156,15 @@ async def _wait_for_background_jobs(timeout: float = 1.0) -> None:
     instead of asserting immediately - asserting immediately is what made
     part of the old test suite order-dependent (see tests/README.md).
     """
+    if hasattr(background_job_manager, "wait_until_idle"):
+        background_job_manager.wait_until_idle(timeout)
+        return
+
     elapsed = 0.0
     step = 0.01
     # type: ignore[attr-defined]
-    while not background_job_manager._queue.empty() and elapsed < timeout:
+    queue = getattr(background_job_manager, "_queue", None)
+    while queue is not None and not queue.empty() and elapsed < timeout:
         await asyncio.sleep(step)
         elapsed += step
 
@@ -141,22 +177,31 @@ def wait_for_background_jobs(timeout: float = 1.0) -> None:
 @pytest.fixture()
 def client() -> Iterator[TestClient]:
     """The main fixture almost every test uses: a fully working FastAPI TestClient
-    wired up to its own private, empty, in-memory SQLite database.
+    wired up to its own private, empty, temporary SQLite database.
 
     Nothing about the real deployment database, Redis, or SMTP server is
     needed to use this fixture - everything is faked or swapped out for an
-    in-memory equivalent, which is what makes the suite fast (no network
-    calls) and safe to run anywhere.
+    isolated test database, which avoids file lock and cleanup issues on
+    Windows while remaining fast enough for the suite.
     """
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    database_url = f"sqlite+aiosqlite:///{Path(db_path).as_posix()}"
     test_engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:", echo=False)
+        database_url,
+        echo=False,
+        future=True,
+        connect_args={"check_same_thread": False},
+    )
     test_session_factory = async_sessionmaker(
-        bind=test_engine, expire_on_commit=False)
+        bind=test_engine,
+        expire_on_commit=False,
+    )
 
     # These are module-level globals that the rest of the app imports and
     # uses directly (see backend/database/session.py), so swapping them here
     # is how every request made through the TestClient below ends up talking
-    # to our private in-memory database instead of a real one.
+    # to our private test database instead of a real one.
     db_session.engine = test_engine
     db_session.SessionLocal = test_session_factory
     main_module.engine = test_engine
@@ -168,10 +213,23 @@ def client() -> Iterator[TestClient]:
 
     asyncio.run(init_db())
 
-    with TestClient(main_module.app) as test_client:
+    app = main_module.app
+    with TestClient(app) as test_client:
         yield test_client
 
+    background_job_manager.wait_until_idle(timeout=2.0)
+    try:
+        asyncio.run(background_job_manager.stop())
+    except RuntimeError:
+        pass
     asyncio.run(test_engine.dispose())
+    try:
+        Path(db_path).unlink()
+    except OSError:
+        pass
+    import gc
+
+    gc.collect()
 
 
 def register_user(

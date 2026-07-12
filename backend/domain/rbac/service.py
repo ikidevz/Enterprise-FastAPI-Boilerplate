@@ -46,6 +46,7 @@ class RbacService:
                 {"key": "rbac.manage", "name": "Manage RBAC"},
                 {"key": "billing.manage", "name": "Manage Billing"},
                 {"key": "system.billing_toggle", "name": "Toggle Billing System"},
+                {"key": "audit.view", "name": "View Audit Logs"},
             ]
             for payload in permissions:
                 existing = await self.db.scalar(select(Permission).where(Permission.key == payload["key"]))
@@ -171,6 +172,9 @@ class RbacService:
     async def user_has_permission(self, user: User, permission_key: str) -> bool:
         if user.is_superuser:
             return True
+        api_scopes = getattr(user, "api_key_scopes", None)
+        if api_scopes is not None:
+            return permission_key in api_scopes
         if isinstance(user.permissions, list) and permission_key in user.permissions:
             return True
         result = await self.db.execute(

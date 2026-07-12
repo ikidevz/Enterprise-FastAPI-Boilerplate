@@ -41,6 +41,103 @@ def upgrade() -> None:
                     "users", ["username"], unique=True)
 
     op.create_table(
+        "api_keys",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("owner_id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(length=150), nullable=False),
+        sa.Column("key_prefix", sa.String(length=50), nullable=False),
+        sa.Column("hashed_secret", sa.String(length=255), nullable=False),
+        sa.Column("scopes", sa.JSON(), nullable=False,
+                  server_default=sa.text("'[]'")),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["owner_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_api_keys_id"), "api_keys", ["id"], unique=False)
+    op.create_index(op.f("ix_api_keys_owner_id"),
+                    "api_keys", ["owner_id"], unique=False)
+    op.create_index(op.f("ix_api_keys_key_prefix"),
+                    "api_keys", ["key_prefix"], unique=False)
+
+    op.create_table(
+        "audit_log_entries",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("actor_id", sa.Integer(), nullable=True),
+        sa.Column("actor_username", sa.String(length=150), nullable=True),
+        sa.Column("action", sa.String(length=200), nullable=False),
+        sa.Column("resource", sa.String(length=200), nullable=False),
+        sa.Column("details", sa.JSON(), nullable=False,
+                  server_default=sa.text("'{}'")),
+        sa.Column("request_id", sa.String(length=100), nullable=True),
+        sa.Column("trace_id", sa.String(length=100), nullable=True),
+        sa.Column("method", sa.String(length=20), nullable=True),
+        sa.Column("path", sa.String(length=500), nullable=True),
+        sa.Column("status_code", sa.Integer(), nullable=True),
+        sa.Column("success", sa.Boolean(), nullable=False,
+                  server_default="false"),
+        sa.Column("error", sa.String(length=400), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["actor_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_audit_log_entries_id"),
+                    "audit_log_entries", ["id"], unique=False)
+    op.create_index(op.f("ix_audit_log_entries_actor_id"),
+                    "audit_log_entries", ["actor_id"], unique=False)
+    op.create_index(op.f("ix_audit_log_entries_action"),
+                    "audit_log_entries", ["action"], unique=False)
+    op.create_index(op.f("ix_audit_log_entries_resource"),
+                    "audit_log_entries", ["resource"], unique=False)
+
+    op.create_table(
+        "webhook_endpoints",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("owner_id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(length=150), nullable=False),
+        sa.Column("url", sa.String(length=2000), nullable=False),
+        sa.Column("subscribed_events", sa.JSON(), nullable=False,
+                  server_default=sa.text("'[]'")),
+        sa.Column("signing_secret", sa.String(length=255), nullable=False),
+        sa.Column("is_active", sa.Boolean(), nullable=False,
+                  server_default="true"),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["owner_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_webhook_endpoints_id"),
+                    "webhook_endpoints", ["id"], unique=False)
+    op.create_index(op.f("ix_webhook_endpoints_owner_id"),
+                    "webhook_endpoints", ["owner_id"], unique=False)
+
+    op.create_table(
+        "webhook_deliveries",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("endpoint_id", sa.Integer(), nullable=False),
+        sa.Column("event_type", sa.String(length=100), nullable=False),
+        sa.Column("payload", sa.JSON(), nullable=False),
+        sa.Column("attempt_count", sa.Integer(), nullable=False,
+                  server_default="0"),
+        sa.Column("last_attempt_at", sa.DateTime(
+            timezone=True), nullable=True),
+        sa.Column("last_status_code", sa.Integer(), nullable=True),
+        sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
+                  server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.ForeignKeyConstraint(["endpoint_id"], ["webhook_endpoints.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_webhook_deliveries_id"),
+                    "webhook_deliveries", ["id"], unique=False)
+    op.create_index(op.f("ix_webhook_deliveries_endpoint_id"),
+                    "webhook_deliveries", ["endpoint_id"], unique=False)
+
+    op.create_table(
         "products",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),

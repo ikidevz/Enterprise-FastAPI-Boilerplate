@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -9,21 +10,40 @@ from typing import Any
 from sqlalchemy import select
 
 from backend.core.config import settings
+from backend.infrastructure.queue import job_queue
+from backend.infrastructure.queue.registry import register_job_handler
 from backend.observability.logging import logger
 from backend.resilience.retry import retry_async
 
 
 def enqueue_billing_notification(*, user_id: int, kind: str, title: str, body: str) -> None:
+    job_queue.enqueue(
+        "billing_notification",
+        {
+            "user_id": user_id,
+            "kind": kind,
+            "title": title,
+            "body": body,
+        },
+    )
+
+
+@register_job_handler("billing_notification")
+async def billing_notification(payload: dict[str, Any]) -> None:
     from backend.domain.billing.models import Notification
     from backend.database import session as db_session
 
-    async def _job() -> None:
-        async with db_session.SessionLocal() as db:
-            db.add(Notification(user_id=user_id, kind=kind,
-                   title=title, body=body, channel="in_app"))
-            await db.commit()
-
-    background_job_manager.enqueue(_job)
+    async with db_session.SessionLocal() as db:
+        db.add(
+            Notification(
+                user_id=int(payload["user_id"]),
+                kind=str(payload["kind"]),
+                title=str(payload["title"]),
+                body=str(payload["body"]),
+                channel="in_app",
+            )
+        )
+        await db.commit()
 
 
 async def cleanup_stale_uploads(*, older_than_days: int = 7) -> int:
@@ -130,6 +150,11 @@ class BackgroundJobManager:
         self._dead_letter: list[dict[str, object]] = []
         self._dead_letter_limit = 50
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._active_jobs = 0
+        self._pending_job_count = 0
+        self._lock = threading.Lock()
+        self._idle_event = threading.Event()
+        self._idle_event.set()
 
     async def start(self) -> None:
         try:
@@ -143,6 +168,10 @@ class BackgroundJobManager:
         self._task = loop.create_task(self._run())
 
     def enqueue(self, job) -> None:
+        self._idle_event.clear()
+        with self._lock:
+            self._pending_job_count += 1
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -163,13 +192,25 @@ class BackgroundJobManager:
 
     async def _run(self) -> None:
         while True:
-            job = await self._queue_backend.get()
+            job = None
             try:
+                job = await self._queue_backend.get()
+                with self._lock:
+                    self._pending_job_count -= 1
+                    self._active_jobs += 1
                 await retry_async(
                     lambda: self._execute_job(job),
                     retries=2,
                     delay=0.05,
                 )
+            except asyncio.CancelledError:
+                if job is not None:
+                    try:
+                        await self._queue_backend.task_done()
+                    except ValueError:
+                        pass
+                    job = None
+                raise
             except Exception as exc:
                 self._dead_letter.append(
                     {
@@ -179,13 +220,21 @@ class BackgroundJobManager:
                 )
                 if len(self._dead_letter) > self._dead_letter_limit:
                     self._dead_letter = self._dead_letter[-self._dead_letter_limit:]
-                logger.error(
+                logger.exception(
                     "background_job_failed",
-                    extra={"job": getattr(
-                        job, "__qualname__", repr(job)), "error": str(exc)},
+                    extra={"job": getattr(job, "__qualname__", repr(job))},
                 )
             finally:
-                await self._queue_backend.task_done()
+                if job is not None:
+                    try:
+                        await self._queue_backend.task_done()
+                    except ValueError:
+                        logger.warning("background_job_task_done_mismatch", extra={
+                                       "job": getattr(job, "__qualname__", repr(job))})
+                    with self._lock:
+                        self._active_jobs -= 1
+                        if self._active_jobs == 0 and self._pending_job_count == 0:
+                            self._idle_event.set()
 
     async def stop(self) -> None:
         if self._task is None:
@@ -193,6 +242,25 @@ class BackgroundJobManager:
         self._task.cancel()
         await asyncio.gather(self._task, return_exceptions=True)
         self._task = None
+        with self._lock:
+            if self._pending_job_count == 0 and self._active_jobs == 0:
+                self._idle_event.set()
+
+    def wait_until_idle(self, timeout: float | None = None) -> bool:
+        return self._idle_event.wait(timeout)
+
+    async def reset(self) -> None:
+        await self.stop()
+        self._queue_backend = QueueBackend()
+        self._queue = None
+        self._dead_letter = []
+        self._dead_letter_limit = 50
+        self._loop = None
+        with self._lock:
+            self._active_jobs = 0
+            self._pending_job_count = 0
+            self._idle_event = threading.Event()
+            self._idle_event.set()
 
 
 background_job_manager = BackgroundJobManager()

@@ -20,11 +20,17 @@ def test_migrated_schema_has_every_column_the_orm_model_declares() -> None:
     import asyncio
     from sqlalchemy import inspect
     from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import StaticPool
     from backend.domain.users.model import User
 
     async def check() -> None:
         """Supports the test suite by check."""
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
         async with engine.connect() as conn:
             await conn.run_sync(Base.metadata.create_all)
             columns = await conn.run_sync(
@@ -70,6 +76,10 @@ def test_alembic_head_creates_rbac_and_billing_tables(tmp_path) -> None:
         "payment_events",
         "invoices",
         "notifications",
+        "api_keys",
+        "audit_log_entries",
+        "webhook_endpoints",
+        "webhook_deliveries",
     }
     missing = expected - tables
     assert not missing, f"Migration is missing tables: {sorted(missing)}"

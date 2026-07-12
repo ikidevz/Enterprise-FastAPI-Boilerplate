@@ -4,12 +4,16 @@ import json
 import logging
 import logging.handlers
 import asyncio
+import hmac
+import hashlib
 from datetime import datetime, timezone
 from typing import Any
 from pathlib import Path
 from fastapi import Request
 
 from backend.domain.users.model import User
+from backend.infrastructure.queue import job_queue
+from backend.infrastructure.queue.registry import register_job_handler
 from backend.observability.logging import get_request_id
 
 
@@ -115,7 +119,36 @@ class AuditLogger:
             # No running event loop (e.g. tests or CLI scripts).
             self._persist(entry)
 
+        try:
+            job_queue.enqueue("persist_audit_log_entry", entry)
+        except Exception:
+            self.logger.exception("audit_queue_enqueue_failed")
         return entry
+
+
+@register_job_handler("persist_audit_log_entry")
+async def persist_audit_log_entry(payload: dict[str, Any]) -> None:
+    from backend.database import session as db_session
+    from backend.domain.audit_log.model import AuditLogEntry
+
+    entry = AuditLogEntry(
+        actor_id=payload.get("actor_id"),
+        actor_username=payload.get("actor_username"),
+        action=payload.get("action", ""),
+        resource=payload.get("resource", ""),
+        details=payload.get("details") or {},
+        request_id=payload.get("request_id"),
+        trace_id=payload.get("trace_id"),
+        method=payload.get("method"),
+        path=payload.get("path"),
+        status_code=payload.get("status_code"),
+        success=payload.get("success", True),
+        error=payload.get("error"),
+    )
+    async with db_session.SessionLocal() as db:
+        db.add(entry)
+        await db.flush()
+        await db.commit()
 
 
 audit_logger = AuditLogger()

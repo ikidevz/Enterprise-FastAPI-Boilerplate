@@ -36,5 +36,6 @@ class EventBus:
         self._handlers.setdefault(event_type, []).append(handler)
 
     async def publish(self, event: DomainEvent) -> None:
-        for handler in self._handlers.get(event.payload.get("event_type", ""), []):
+        event_type = event.payload.get("event_type", "")
+        for handler in self._handlers.get(event_type, []) + self._handlers.get("*", []):
             await handler(event)

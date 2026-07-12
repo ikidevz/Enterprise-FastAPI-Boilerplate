@@ -208,6 +208,15 @@ class Settings(BaseSettings):
     otel_service_name: str = Field(default="tier4", validation_alias=AliasChoices(
         "OTEL_SERVICE_NAME", "otel_service_name"))
 
+    job_queue_backend: Literal["redis", "inprocess"] = Field(
+        default="inprocess",
+        validation_alias=AliasChoices(
+            "JOB_QUEUE_BACKEND", "job_queue_backend"),
+    )
+    job_max_attempts: int = Field(
+        default=3,
+        validation_alias=AliasChoices("JOB_MAX_ATTEMPTS", "job_max_attempts"),
+    )
     refresh_token_expire_days: int = Field(default=7)
     trusted_proxy_ips: List[str] = Field(
         default_factory=list,

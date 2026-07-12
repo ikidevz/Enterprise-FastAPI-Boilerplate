@@ -1,10 +1,12 @@
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.config import settings
 from backend.database.session import get_db
+from backend.domain.api_keys.repository import ApiKeyRepository
+from backend.domain.api_keys.service import ApiKeyService
 from backend.domain.users.repository import UserRepository
 from backend.domain.users.service import UserService
 from backend.core.security.token_store import TokenStore
@@ -15,9 +17,29 @@ revocation_store = TokenStore(prefix="tier4:revocations")
 
 async def get_current_user(
     request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ):
+    if x_api_key is not None:
+        api_key_repository = ApiKeyRepository(db)
+        api_key_service = ApiKeyService(api_key_repository)
+        api_key = await api_key_service.authenticate(x_api_key)
+        if api_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API key",
+            )
+        user = await UserRepository(db).get_by_id(int(api_key.owner_id))
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API key",
+            )
+        user.api_key_scopes = api_key.scopes or []
+        user.api_key_id = api_key.id
+        return user
+
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")

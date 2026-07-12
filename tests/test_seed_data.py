@@ -2,6 +2,7 @@ import asyncio
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from backend.database.base import Base
 from backend.domain.products.model import Product
@@ -14,7 +15,12 @@ def test_seed_creates_a_default_admin_and_sample_products() -> None:
     async def run_seed() -> None:
         """Supports the test suite by run seed."""
         test_engine = create_async_engine(
-            "sqlite+aiosqlite:///:memory:", echo=False)
+            "sqlite+aiosqlite:///:memory:",
+            echo=False,
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
         try:
             async with test_engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -45,7 +51,12 @@ def test_seeding_twice_does_not_create_duplicates() -> None:
     async def run_seed_twice() -> None:
         """Supports the test suite by run seed twice."""
         test_engine = create_async_engine(
-            "sqlite+aiosqlite:///:memory:", echo=False)
+            "sqlite+aiosqlite:///:memory:",
+            echo=False,
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
         try:
             async with test_engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)

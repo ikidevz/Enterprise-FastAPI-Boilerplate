@@ -46,7 +46,10 @@ Tier 4 Architecture is a backend starter focused on clarity and maintainability.
 - Socket.IO + a bare WebSocket endpoint for real-time experimentation, including authenticated product-created broadcasts
 - Alembic migration scaffolding, a local seed-data script, and an automated test suite covering the flows above
 - Docker + Docker Compose (API + Postgres + Redis) and a GitHub Actions CI workflow (lint + test) out of the box
-- A lightweight background-job queue abstraction for auth email and billing-related follow-up work, with a worker-friendly entry point for future expansion
+- A Redis-backed durable background-job queue abstraction for auth email, audit persistence, billing follow-up work, and webhook delivery, with a worker-friendly entry point for future expansion
+- API key issuance, scoped machine-to-machine auth, and revocable service credentials for automated clients
+- Outbound webhook endpoints with signed payload delivery, retry/backoff, and delivery history
+- A queryable admin audit log with filters for actor, action, resource, success, and time range
 
 ## Why this project
 
@@ -439,6 +442,9 @@ All routes below live under `API_V1_STR` (default `/api/v1`) unless noted otherw
 | POST                      | `/api/v1/auth/logout`                                                                   | Revoke a refresh token                                                                                                   |
 | POST                      | `/api/v1/auth/password-reset/request` \| `/confirm`                                     | Password reset flow                                                                                                      |
 | POST                      | `/api/v1/auth/email-verification/request` \| `/confirm`                                 | Email verification flow                                                                                                  |
+| POST                      | `/api/v1/api-keys/`                                                                     | Issue a new API key for machine-to-machine access                                                                        |
+| GET                       | `/api/v1/api-keys/`                                                                     | List the current user's active API keys                                                                                  |
+| DELETE                    | `/api/v1/api-keys/{id}`                                                                 | Revoke one of the current user's API keys                                                                                |
 | POST / GET / PUT / DELETE | `/api/v1/products/` \| `/{product_id}`                                                  | Product CRUD; writes require auth, list/read remain public, and list supports `search`, `skip`, `limit`, `sort`, `order` |
 | POST                      | `/api/v1/uploads/`                                                                      | Upload a file (auth required)                                                                                            |
 | GET                       | `/api/v1/billing/plans`                                                                 | List active subscription plans (public)                                                                                  |
@@ -446,6 +452,11 @@ All routes below live under `API_V1_STR` (default `/api/v1`) unless noted otherw
 | POST                      | `/api/v1/billing/checkout`                                                              | Start a Stripe/PayPal checkout session for a plan (auth required)                                                        |
 | POST                      | `/api/v1/billing/subscriptions/cancel`                                                  | Cancel the current user's subscription (auth required)                                                                   |
 | GET                       | `/api/v1/billing/feature-check`                                                         | Check whether the current user's plan includes a given feature key (auth required)                                       |
+| POST                      | `/api/v1/webhooks/endpoints`                                                            | Register a new outbound webhook endpoint                                                                                 |
+| GET                       | `/api/v1/webhooks/endpoints`                                                            | List the current user's webhook endpoints                                                                                |
+| DELETE                    | `/api/v1/webhooks/endpoints/{id}`                                                       | Delete a webhook endpoint                                                                                                |
+| GET                       | `/api/v1/webhooks/endpoints/{id}/deliveries`                                            | List delivery history for a webhook endpoint                                                                             |
+| GET                       | `/api/v1/audit-log/`                                                                    | Query admin audit log entries with filters                                                                               |
 | POST                      | `/api/v1/billing/webhooks/stripe`                                                       | Stripe/PayPal-style webhook receiver; idempotent on `(provider, event_id)`                                               |
 | POST                      | `/api/v1/billing/admin/plans` \| `/admin/features` \| `/admin/plans/{plan_id}/features` | Create plans/features and map features to a plan (requires `billing.manage` permission)                                  |
 | POST                      | `/api/v1/billing/subscriptions/assign`                                                  | Directly assign a plan to a user (requires `billing.manage` permission)                                                  |
@@ -583,6 +594,35 @@ curl -X POST "http://127.0.0.1:8000/api/v1/uploads/" \
   -H "Authorization: Bearer <access_token>" \
   -F "file=@./example.pdf"
 ```
+
+### API keys (`backend/app/api/v1/api_keys/router.py`)
+
+Scoped API key issuance and revocation for machine-to-machine access. API keys are owned by the caller and can only be managed by the issuing user.
+
+| Method | Path             | Auth   | Body / query                                   | Success response                                                  |
+| ------ | ---------------- | ------ | ---------------------------------------------- | ----------------------------------------------------------------- |
+| POST   | `/api-keys/`     | Bearer | JSON `{ name, scopes: string[], expires_at? }` | `201` → `ApiKeyCreated` (one-time `raw_secret` plus key metadata) |
+| GET    | `/api-keys/`     | Bearer | —                                              | `200` → `list[ApiKeyOut]`                                         |
+| DELETE | `/api-keys/{id}` | Bearer | —                                              | `204`                                                             |
+
+### Webhooks (`backend/app/api/v1/webhooks/router.py`)
+
+Outbound webhook endpoint management for customer systems. Signatures are generated per endpoint and deliveries are recorded for debugging.
+
+| Method | Path                                  | Auth   | Body / query                                      | Success response                   |
+| ------ | ------------------------------------- | ------ | ------------------------------------------------- | ---------------------------------- |
+| POST   | `/webhooks/endpoints`                 | Bearer | JSON `{ name, url, subscribed_events: string[] }` | `201` → `WebhookEndpointOut`       |
+| GET    | `/webhooks/endpoints`                 | Bearer | —                                                 | `200` → `list[WebhookEndpointOut]` |
+| DELETE | `/webhooks/endpoints/{id}`            | Bearer | —                                                 | `204`                              |
+| GET    | `/webhooks/endpoints/{id}/deliveries` | Bearer | —                                                 | `200` → `list[WebhookDeliveryOut]` |
+
+### Audit log (`backend/app/api/v1/audit_log/router.py`)
+
+Admin query endpoint for audit entries. Requires `audit.view` permission and supports filtering by actor, action, resource, timestamp range, and success status.
+
+| Method | Path          | Auth                 | Body / query                                                                         | Success response                 |
+| ------ | ------------- | -------------------- | ------------------------------------------------------------------------------------ | -------------------------------- |
+| GET    | `/audit-log/` | Bearer, `audit.view` | query `actor_id`, `action`, `resource`, `since`, `until`, `success`, `skip`, `limit` | `200` → `list[AuditLogEntryOut]` |
 
 ### Billing (`backend/app/api/v1/billing/router.py`)
 

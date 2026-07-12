@@ -100,12 +100,12 @@ def test_trial_expiry_job_marks_expired_subscriptions(client: pytest.FixtureRequ
                                      provider="manual", trial_ends_at=datetime.now(timezone.utc) - timedelta(days=1))
             db.add(trial_sub)
             await db.commit()
-            await db.refresh(trial_sub)
+            trial_sub_id = trial_sub.id
 
         updated_count = await expire_trial_subscriptions()
 
         async with db_session.SessionLocal() as db:
-            refreshed = await db.get(Subscription, trial_sub.id)
+            refreshed = await db.get(Subscription, trial_sub_id)
             assert refreshed is not None
             assert refreshed.status == "expired"
 
